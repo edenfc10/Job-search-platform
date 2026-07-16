@@ -1,18 +1,12 @@
 from contextlib import asynccontextmanager
 
-import structlog
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from aijaa.core.db import init_db
+from aijaa.core.db import get_session, init_db
+from aijaa.observability.logging import configure_logging
 
-structlog.configure(
-    processors=[
-        structlog.contextvars.merge_contextvars,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ]
-)
+configure_logging()
 
 
 @asynccontextmanager
@@ -44,6 +38,12 @@ def create_app() -> FastAPI:
             "llm_mode": get_llms().mode,
             "dry_run": get_settings().dry_run,
         }
+
+    @app.get("/metrics")
+    async def metrics(s: AsyncSession = Depends(get_session)):
+        from aijaa.observability.metrics import render_metrics
+
+        return Response(await render_metrics(s), media_type="text/plain; version=0.0.4")
 
     return app
 

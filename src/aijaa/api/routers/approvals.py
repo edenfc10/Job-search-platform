@@ -12,6 +12,7 @@ from aijaa.core import repo
 from aijaa.core.db import get_session
 from aijaa.core.models import utcnow
 from aijaa.core.status import ApplicationStatus
+from aijaa.orchestration.pipeline import enqueue_approved_match
 
 router = APIRouter(prefix="/v1", tags=["approvals"])
 
@@ -84,6 +85,8 @@ async def decide(match_id: str, body: DecisionRequest, s: AsyncSession = Depends
             s, app, new_status, actor=f"operator:{body.decided_by}",
             reason=body.note or body.decision,
         )
+        if body.decision == "approved":
+            await enqueue_approved_match(s, match, app)
     await repo.audit(
         s, match.seeker_id, "match", match_id, f"decision:{body.decision}",
         actor=f"operator:{body.decided_by}", detail={"note": body.note},

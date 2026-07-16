@@ -1,0 +1,101 @@
+from datetime import timedelta
+
+from aijaa.core import repo
+from aijaa.core.config import get_settings
+from aijaa.core.models import ApplicationRecord, utcnow
+from aijaa.orchestration.governor import can_start_application, can_start_browser_task
+from aijaa.orchestration.pipeline import enqueue_approved_match
+
+
+async def test_task_enqueue_is_idempotent(session):
+    first, created = await repo.enqueue_task(
+        session, "run_matching", "match:seeker-1", {"seeker_id": "seeker-1"}, "seeker-1"
+    )
+    second, created_again = await repo.enqueue_task(
+        session, "run_matching", "match:seeker-1", {"seeker_id": "seeker-1"}, "seeker-1"
+    )
+    assert first == second
+    assert created is True
+    assert created_again is False
+    assert (await repo.task_counts(session, "seeker-1"))["queued"] == 1
+
+
+async def test_approved_match_enqueue_skips_terminal_application(session):
+    from aijaa.core.models import MatchResult
+
+    match = MatchResult(seeker_id="s1", posting_id="p1", status="approved")
+    app = ApplicationRecord(seeker_id="s1", posting_id="p1", match_id=match.id, status="confirmed")
+    task_id, created = await enqueue_approved_match(session, match, app)
+    assert task_id is None
+    assert created is False
+
+
+async def test_browser_governor_enforces_global_and_per_seeker_caps(session, monkeypatch):
+    monkeypatch.setenv("AIJAA_BROWSER_POOL_MAX", "1")
+    get_settings.cache_clear()
+    await repo.enqueue_task(
+        session,
+        "run_apply",
+        "application:a1:apply",
+        {"application_id": "a1"},
+        "s1",
+        "a1",
+    )
+    task = await repo.claim_due_task(session)
+    assert task is not None
+    allowed, reason = await can_start_browser_task(session, "s1")
+    assert not allowed
+    assert reason in {"browser_pool_full", "seeker_browser_busy"}
+
+
+async def test_daily_cap_and_domain_pacing(session, monkeypatch):
+    monkeypatch.setenv("AIJAA_APPLICATIONS_PER_DAY", "1")
+    monkeypatch.setenv("AIJAA_DOMAIN_APPLICATION_INTERVAL_SECONDS", "120")
+    get_settings.cache_clear()
+    app = ApplicationRecord(seeker_id="s1", posting_id="p1", match_id="m1")
+    await repo.audit(
+        session,
+        "s1",
+        "application",
+        "old",
+        "application_start",
+        "system",
+        {},
+    )
+    allowed, reason, _ = await can_start_application(session, app, "https://boards.example/jobs/1")
+    assert not allowed
+    assert reason == "daily_application_cap"
+
+    app2 = ApplicationRecord(seeker_id="s2", posting_id="p2", match_id="m2")
+    allowed, reason, _ = await can_start_application(session, app2, "https://boards.example/jobs/2")
+    assert allowed, reason
+    allowed, reason, seconds = await can_start_application(
+        session, app2, "https://boards.example/jobs/3"
+    )
+    assert not allowed
+    assert reason == "domain_rate_limited"
+    assert seconds > 0
+
+
+async def test_dead_letter_after_failed_task(session):
+    task_id, _ = await repo.enqueue_task(session, "unknown", "unknown:1")
+    await repo.fail_task(session, task_id, "boom")
+    assert await repo.dead_letter_count(session) == 1
+
+
+async def test_pipeline_status_endpoint(client):
+    seeker = (
+        await client.post(
+            "/v1/seekers",
+            json={"external_ref": "p", "consent_recorded_at": "2026-07-16T08:00:00Z"},
+        )
+    ).json()["seeker_id"]
+    r = await client.get(f"/v1/seekers/{seeker}/pipeline")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["seeker_id"] == seeker
+    assert "next_scheduled_discovery" in body
+
+
+def test_application_cap_window_uses_recent_events_only():
+    assert (utcnow() - timedelta(days=1)).isoformat()

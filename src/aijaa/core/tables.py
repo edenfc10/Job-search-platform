@@ -102,3 +102,37 @@ class LLMUsageRow(Base):
     model: Mapped[str] = mapped_column(String(64))
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class TaskRow(Base):
+    __tablename__ = "tasks"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    task_type: Mapped[str] = mapped_column(String(64), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    seeker_id: Mapped[str] = mapped_column(String(32), index=True, default="")
+    application_id: Mapped[str] = mapped_column(String(32), index=True, default="")
+    status: Mapped[str] = mapped_column(String(24), index=True, default="queued")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    run_after: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(String(2048), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class DeadLetterRow(Base):
+    __tablename__ = "dead_letters"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(32), index=True)
+    task_type: Mapped[str] = mapped_column(String(64), index=True)
+    seeker_id: Mapped[str] = mapped_column(String(32), index=True, default="")
+    application_id: Mapped[str] = mapped_column(String(32), index=True, default="")
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str] = mapped_column(String(2048), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class DomainThrottleRow(Base):
+    __tablename__ = "domain_throttles"
+    domain: Mapped[str] = mapped_column(String(255), primary_key=True)
+    next_allowed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

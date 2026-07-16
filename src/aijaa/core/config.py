@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     profile_stale_days: int = 90
     applications_per_day: int = 10
 
-    # Politeness
+    # Local orchestration / politeness defaults. The reference build uses an
+    # in-process DB-backed runner; these names map directly to the production
+    # Redis/arq governor described in the prompt chain.
+    browser_pool_max: int = 3
+    domain_application_interval_seconds: float = 120.0
+    discovery_interval_hours: int = 6
     domain_min_interval_seconds: float = 5.0
 
 

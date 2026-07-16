@@ -1,9 +1,9 @@
 """Repository layer. Tenancy rule: every seeker-scoped read/write REQUIRES
 seeker_id. Domain code never queries tables directly."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aijaa.core import tables as t
@@ -394,4 +394,157 @@ async def add_llm_usage(
             output_tokens=output_tokens,
         )
     )
+    await s.commit()
+
+
+# --------------------------------------------------------------------------- tasks
+
+
+async def enqueue_task(
+    s: AsyncSession,
+    task_type: str,
+    idempotency_key: str,
+    payload: dict | None = None,
+    seeker_id: str = "",
+    application_id: str = "",
+    run_after: datetime | None = None,
+) -> tuple[str, bool]:
+    """Create a queued task unless an equivalent unfinished/done task exists."""
+    existing = (
+        await s.execute(
+            select(t.TaskRow).where(t.TaskRow.idempotency_key == idempotency_key)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing.id, False
+    task_id = new_id()
+    s.add(
+        t.TaskRow(
+            id=task_id,
+            task_type=task_type,
+            idempotency_key=idempotency_key,
+            seeker_id=seeker_id,
+            application_id=application_id,
+            status="queued",
+            run_after=run_after or utcnow(),
+            payload=payload or {},
+        )
+    )
+    await s.commit()
+    return task_id, True
+
+
+async def list_tasks(
+    s: AsyncSession, status: str | None = None, seeker_id: str | None = None
+) -> list[t.TaskRow]:
+    q = select(t.TaskRow)
+    if status:
+        q = q.where(t.TaskRow.status == status)
+    if seeker_id:
+        q = q.where(t.TaskRow.seeker_id == seeker_id)
+    return (await s.execute(q.order_by(t.TaskRow.run_after, t.TaskRow.id))).scalars().all()
+
+
+async def claim_due_task(s: AsyncSession) -> t.TaskRow | None:
+    row = (
+        await s.execute(
+            select(t.TaskRow)
+            .where(t.TaskRow.status == "queued", t.TaskRow.run_after <= utcnow())
+            .order_by(t.TaskRow.run_after, t.TaskRow.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    row.status = "running"
+    row.locked_at = utcnow()
+    row.attempts += 1
+    await s.commit()
+    return row
+
+
+async def complete_task(s: AsyncSession, task_id: str) -> None:
+    row = await s.get(t.TaskRow, task_id)
+    if row:
+        row.status = "succeeded"
+        row.completed_at = utcnow()
+        await s.commit()
+
+
+async def fail_task(
+    s: AsyncSession, task_id: str, error: str, retry_after_seconds: int | None = None
+) -> None:
+    row = await s.get(t.TaskRow, task_id)
+    if row is None:
+        return
+    row.error = error[:2048]
+    if retry_after_seconds is not None and row.attempts < 3:
+        row.status = "queued"
+        row.run_after = utcnow() + timedelta(seconds=retry_after_seconds)
+    else:
+        row.status = "dead_letter"
+        s.add(
+            t.DeadLetterRow(
+                task_id=row.id,
+                task_type=row.task_type,
+                seeker_id=row.seeker_id,
+                application_id=row.application_id,
+                failed_at=utcnow(),
+                error=row.error,
+                payload=row.payload,
+            )
+        )
+    await s.commit()
+
+
+async def task_counts(s: AsyncSession, seeker_id: str | None = None) -> dict[str, int]:
+    q = select(t.TaskRow.status, func.count()).group_by(t.TaskRow.status)
+    if seeker_id:
+        q = q.where(t.TaskRow.seeker_id == seeker_id)
+    rows = (await s.execute(q)).all()
+    return {status: count for status, count in rows}
+
+
+async def dead_letter_count(s: AsyncSession, seeker_id: str | None = None) -> int:
+    q = select(func.count()).select_from(t.DeadLetterRow)
+    if seeker_id:
+        q = q.where(t.DeadLetterRow.seeker_id == seeker_id)
+    return int((await s.execute(q)).scalar_one())
+
+
+async def active_browser_tasks(s: AsyncSession, seeker_id: str | None = None) -> int:
+    browser_types = {"run_analyze", "run_apply", "resume_after_human"}
+    q = select(func.count()).select_from(t.TaskRow).where(
+        t.TaskRow.status == "running", t.TaskRow.task_type.in_(browser_types)
+    )
+    if seeker_id:
+        q = q.where(t.TaskRow.seeker_id == seeker_id)
+    return int((await s.execute(q)).scalar_one())
+
+
+async def applications_started_since(s: AsyncSession, seeker_id: str, since: datetime) -> int:
+    rows = (
+        await s.execute(
+            select(t.AuditRow).where(
+                t.AuditRow.seeker_id == seeker_id,
+                t.AuditRow.event == "application_start",
+                t.AuditRow.ts >= since,
+            )
+        )
+    ).scalars().all()
+    return len(rows)
+
+
+async def domain_next_allowed(s: AsyncSession, domain: str) -> datetime | None:
+    row = await s.get(t.DomainThrottleRow, domain)
+    return row.next_allowed_at if row else None
+
+
+async def reserve_domain(s: AsyncSession, domain: str, interval_seconds: float) -> None:
+    next_allowed = utcnow() + timedelta(seconds=interval_seconds)
+    row = await s.get(t.DomainThrottleRow, domain)
+    if row:
+        row.next_allowed_at = next_allowed
+    else:
+        s.add(t.DomainThrottleRow(domain=domain, next_allowed_at=next_allowed))
     await s.commit()

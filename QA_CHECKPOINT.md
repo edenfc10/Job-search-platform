@@ -84,3 +84,39 @@ Key endpoints to try in `/docs`: `POST /v1/seekers` → `POST /v1/seekers/{id}/i
 - When you're ready to leave DRY_RUN, we flip it per-environment only after the E2E + eval gates in the final phase pass (documented policy, not a code default).
 
 Reply with go/no-go (and any answers above) and I'll complete orchestration, the full audit/metrics surface, and the mock-board E2E with eval gates.
+
+---
+
+# AIJAA — QA Checkpoint #2
+
+**Date:** 2026-07-16 · **Status:** local orchestration, governance, observability
+surfaces, mock-board harness, eval gates, and operator runbook implemented.
+
+## What changed after QA-1
+
+- DB-backed in-process task queue with idempotency keys, task statuses, and
+  dead-letter records.
+- Governance defaults for per-seeker browser concurrency, global browser pool,
+  daily application caps, and per-domain application pacing.
+- Approval and human-input events enqueue local pipeline tasks while direct QA
+  endpoints remain available.
+- `GET /v1/seekers/{id}/pipeline`, `GET /metrics`,
+  `GET /v1/seekers/{id}/usage?window=30d`, `GET /v1/usage?window=30d`, and a
+  merged chronological application timeline.
+- Expanded mock-board testkit with a Greenhouse-shaped feed, single-page form,
+  multi-step/human-question flow, CAPTCHA wall, and flaky submission mode.
+- CI-mode eval tests for matcher relevance, tailoring truthfulness, and screening
+  answer traps.
+- `README.md` operator runbook and DRY_RUN flip policy.
+
+## QA-2 Commands
+
+```bash
+cd /Users/amitbakshi/AIJAA/aijaa
+just ci
+just demo
+```
+
+Expected: lint clean, import/type smoke clean, all tests pass, demo completes with
+zero API usage. `just demo` removes `demo.db` first, so discovery counts should show
+the fresh-run created/updated split documented in QA-1.

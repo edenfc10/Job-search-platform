@@ -1,12 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aijaa.core import repo
 from aijaa.core.config import get_settings
 from aijaa.core.db import get_session
+from aijaa.core.models import utcnow
 from aijaa.intake.engine import IntakeTurnRequest, IntakeTurnResponse, run_turn
 from aijaa.intake.rubric import completeness
 from aijaa.llm.usage import current_seeker_id
@@ -96,13 +97,24 @@ async def latest_resume(
     return doc.model_dump(mode="json")
 
 
+def _window_start(window: str) -> datetime:
+    if window.endswith("d") and window[:-1].isdigit():
+        return utcnow() - timedelta(days=int(window[:-1]))
+    return utcnow() - timedelta(days=30)
+
+
 @router.get("/{seeker_id}/usage")
-async def usage(seeker_id: str, s: AsyncSession = Depends(get_session)):
+async def usage(
+    seeker_id: str,
+    window: str = Query("30d"),
+    s: AsyncSession = Depends(get_session),
+):
     await _require_seeker(s, seeker_id)
     from sqlalchemy import func, select
 
     from aijaa.core.tables import LLMUsageRow
 
+    since = _window_start(window)
     rows = (
         await s.execute(
             select(
@@ -112,11 +124,18 @@ async def usage(seeker_id: str, s: AsyncSession = Depends(get_session)):
                 func.sum(LLMUsageRow.output_tokens),
                 func.count(),
             )
-            .where(LLMUsageRow.seeker_id == seeker_id)
+            .where(LLMUsageRow.seeker_id == seeker_id, LLMUsageRow.ts >= since)
             .group_by(LLMUsageRow.component, LLMUsageRow.model)
         )
     ).all()
     return [
-        {"component": c, "model": m, "input_tokens": i or 0, "output_tokens": o or 0, "calls": n}
+        {
+            "component": c,
+            "model": m,
+            "input_tokens": i or 0,
+            "output_tokens": o or 0,
+            "calls": n,
+            "window": window,
+        }
         for c, m, i, o, n in rows
     ]

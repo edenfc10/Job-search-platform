@@ -22,4 +22,4 @@ demo:
 run:
     {{venv}}/uvicorn aijaa.api.app:app --reload
 
-ci: lint test
+ci: lint typecheck test

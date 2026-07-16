@@ -14,6 +14,7 @@ from aijaa.application.service import (
 from aijaa.core import repo
 from aijaa.core.db import get_session
 from aijaa.llm.usage import current_seeker_id
+from aijaa.orchestration.pipeline import enqueue_human_resume
 
 router = APIRouter(prefix="/v1/applications", tags=["applications"])
 
@@ -51,6 +52,7 @@ async def human_input(
     if not body.provided_by.strip():
         raise HTTPException(422, "provided_by is required")
     app = await provide_human_input(s, application_id, body.answers, body.provided_by)
+    await enqueue_human_resume(s, app)
     return app.model_dump(mode="json")
 
 
@@ -86,10 +88,26 @@ async def timeline(application_id: str, s: AsyncSession = Depends(get_session)):
     if app is None:
         raise HTTPException(404, "application not found")
     audit = await repo.audit_for_entity(s, app.seeker_id, application_id)
+    events = []
+    for entry in app.timeline:
+        events.append({"ts": entry.get("at"), "kind": "status", **entry})
+    for entry in audit:
+        events.append({"ts": entry["ts"], "kind": "audit", **entry})
+    for evidence in app.evidence:
+        events.append(
+            {
+                "ts": evidence.captured_at.isoformat(),
+                "kind": "evidence",
+                "evidence_kind": evidence.kind,
+                "value": evidence.value,
+            }
+        )
+    events.sort(key=lambda e: e.get("ts") or "")
     return {
         "application_id": application_id,
         "status": app.status,
         "timeline": app.timeline,
         "audit": audit,
         "evidence": [e.model_dump(mode="json") for e in app.evidence],
+        "events": events,
     }
