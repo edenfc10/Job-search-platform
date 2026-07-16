@@ -25,14 +25,17 @@ async def list_matches(
     out = []
     for m in matches:
         posting = await repo.get_posting(s, m.posting_id)
+        app = await repo.get_application_for_match(s, m.id)
         out.append(
             {
                 "match_id": m.id,
+                "application_id": app.id if app else None,
                 "score": m.rerank_score,
                 "rationale": m.rationale,
                 "risks": m.risks,
                 "status": m.status,
                 "decided_by": m.decided_by,
+                "application_status": app.status if app else None,
                 "posting": {
                     "id": posting.id,
                     "title": posting.title,

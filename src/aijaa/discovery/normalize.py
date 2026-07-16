@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from aijaa.core.config import get_settings
 from aijaa.core.models import JobPosting
 from aijaa.discovery.base import RawPosting
 
@@ -67,10 +68,14 @@ def normalize(raw: RawPosting, posted_within_days: int) -> JobPosting | None:
 
     salary_min, salary_max = parse_salary(raw.salary_raw or description)
     url = canonical_url(raw.url)
+    apply_url = url
+    if raw.source == "fixture":
+        form = "multi" if "datastream" in raw.company.lower() else "single"
+        apply_url = f"{get_settings().public_base_url.rstrip('/')}/mockboard/forms/{form}"
     return JobPosting(
         source=raw.source,
         canonical_url=url,
-        apply_url=url,
+        apply_url=apply_url,
         company=raw.company,
         title=raw.title.strip(),
         location=raw.location,

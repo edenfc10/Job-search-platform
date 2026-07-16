@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./aijaa.db"
     artifacts_dir: str = "./artifacts"
+    public_base_url: str = "http://127.0.0.1:8000"
 
     anthropic_api_key: str = ""
     # When true (default), all LLM protocols use deterministic fakes — no API usage.
