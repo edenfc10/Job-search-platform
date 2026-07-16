@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     artifacts_dir: str = "./artifacts"
     public_base_url: str = "http://127.0.0.1:8000"
 
+    llm_provider: str = "fake"  # fake | openai | anthropic
+    openai_api_key: str = ""
+    openai_model_fast: str = "gpt-5.6-terra"
+    openai_model_smart: str = "gpt-5.6"
+
     anthropic_api_key: str = ""
     # When true (default), all LLM protocols use deterministic fakes — no API usage.
     fake_llm: bool = True

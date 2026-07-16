@@ -37,6 +37,30 @@ just run
 The API serves `/healthz`, `/docs`, `/metrics`, and the `/v1/...` operator surface.
 Use `AIJAA_DATABASE_URL` and `AIJAA_ARTIFACTS_DIR` to isolate environments.
 
+## OpenAI Production Mode
+
+Copy `.env.example` to `.env`, set `AIJAA_OPENAI_API_KEY`, and run the API:
+
+```bash
+cp .env.example .env
+# edit .env with the real key
+.venv/bin/uvicorn aijaa.api.app:app --host 127.0.0.1 --port 8000
+```
+
+Required settings:
+
+- `AIJAA_FAKE_LLM=false`
+- `AIJAA_LLM_PROVIDER=openai`
+- `AIJAA_OPENAI_API_KEY=...`
+
+Defaults:
+
+- `AIJAA_OPENAI_MODEL_FAST=gpt-5.6-terra`
+- `AIJAA_OPENAI_MODEL_SMART=gpt-5.6`
+
+Keep `AIJAA_DRY_RUN=true` while using real models unless the production
+submit-readiness checklist below is complete.
+
 ## Operator Flow
 
 1. Create a seeker with `POST /v1/seekers`.
