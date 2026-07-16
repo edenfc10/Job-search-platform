@@ -1,0 +1,17 @@
+Dana Levi
+dana@example.com | +972-50-1234567 | Tel Aviv, Israel
+https://linkedin.com/in/danalevi
+
+תקציר
+Senior Backend Engineer with expertise in Python, FastAPI, PostgreSQL, Kubernetes, AWS.
+
+ניסיון תעסוקתי
+Senior Backend Engineer | CloudWorks | 2021-03 - היום
+  - Reduced API p95 latency by 40% by rearchitecting the caching layer in Python and Redis
+  - Led a team of 5 engineers building FastAPI microservices on Kubernetes serving 2M users
+
+השכלה
+B.Sc., CS, Tel Aviv University, 2018
+
+מיומנויות
+Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, Redis

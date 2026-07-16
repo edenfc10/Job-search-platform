@@ -1,0 +1,42 @@
+[project]
+name = "aijaa"
+version = "0.1.0"
+description = "AI Job Applications Agent — headless multi-tenant service"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "sqlalchemy[asyncio]>=2.0",
+    "aiosqlite>=0.20",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "httpx>=0.27",
+    "python-docx>=1.1",
+    "structlog>=24.1",
+    "anthropic>=0.40",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+apply = ["playwright>=1.47"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["e2e: full browser end-to-end tests (require playwright chromium)"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B008"]  # B008: FastAPI Depends() in defaults is idiomatic
