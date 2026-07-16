@@ -1,94 +1,31 @@
 const state = {
-  seekerId: localStorage.getItem("aijaa.seekerId") || "",
+  seekerId: "",
+  selected: null,
   matches: [],
 };
 
-const sampleProfile = {
-  contact: {
-    full_name: "Dana Levi",
-    email: "dana@example.com",
-    phone: "+972-50-1234567",
-    location: "Tel Aviv, Israel",
-    links: ["https://linkedin.com/in/danalevi", "https://github.com/danalevi"],
-  },
-  work_history: [
-    {
-      company: "CloudWorks",
-      title: "Senior Backend Engineer",
-      start: "2021-03",
-      end: null,
-      location: "Tel Aviv",
-      achievements: [
-        {
-          fact_id: "f1",
-          text: "Reduced API p95 latency by 40% by rearchitecting the caching layer in Python and Redis",
-          kind: "achievement",
-          quantified: true,
-        },
-        {
-          fact_id: "f2",
-          text: "Led a team of 5 engineers building FastAPI microservices on Kubernetes serving 2M users",
-          kind: "achievement",
-          quantified: true,
-        },
-      ],
-    },
-    {
-      company: "DataNest",
-      title: "Backend Engineer",
-      start: "2018-06",
-      end: "2021-02",
-      achievements: [
-        {
-          fact_id: "f3",
-          text: "Built ETL pipelines in Python and PostgreSQL processing 500GB daily",
-          kind: "achievement",
-          quantified: true,
-        },
-      ],
-    },
-  ],
-  education: [
-    {
-      institution: "Tel Aviv University",
-      degree: "B.Sc.",
-      field: "Computer Science",
-      year: "2018",
-    },
-  ],
-  skills: [
-    "Python",
-    "FastAPI",
-    "PostgreSQL",
-    "Kubernetes",
-    "AWS",
-    "Docker",
-    "Redis",
-  ].map((text, i) => ({ fact_id: `s${i + 1}`, text, kind: "skill" })),
-  languages: ["English", "Hebrew"],
-};
+const sampleCv = `Dana Levi
+Tel Aviv, Israel | dana@example.com | +972-50-1234567
+LinkedIn: https://linkedin.com/in/danalevi
+GitHub: https://github.com/danalevi
 
-const samplePrefs = {
-  target_titles: ["Senior Backend Engineer", "Backend Engineer", "Staff Engineer"],
-  seniority: "senior",
-  industries: ["SaaS", "Cloud"],
-  locations: ["Tel Aviv", "Remote"],
-  remote_policy: "hybrid",
-  min_salary: 30000,
-  currency: "ILS",
-  work_authorization: "Israeli citizen",
-  dealbreakers: ["gambling"],
-  resume_languages: ["en", "he"],
-};
+Senior Backend Engineer with Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, and Redis experience.
+
+CloudWorks - Senior Backend Engineer - 2021-03 to Present - Tel Aviv
+- Reduced API p95 latency by 40% by rearchitecting the caching layer in Python and Redis.
+- Led a team of 5 engineers building FastAPI microservices on Kubernetes serving 2M users.
+
+DataNest - Backend Engineer - 2018-06 to 2021-02
+- Built ETL pipelines in Python and PostgreSQL processing 500GB daily.
+
+Education: B.Sc. Computer Science, Tel Aviv University, 2018
+Languages: English, Hebrew
+Preferences: Senior Backend Engineer or Backend Engineer, Tel Aviv or Remote, minimum salary 30000 ILS, Israeli citizen, avoid gambling companies.`;
 
 const $ = (id) => document.getElementById(id);
 
 function pretty(value) {
   return JSON.stringify(value, null, 2);
-}
-
-function setBusy(button, busy) {
-  button.disabled = busy;
 }
 
 function toast(message, type = "ok") {
@@ -108,11 +45,22 @@ async function api(path, options = {}) {
   });
   const contentType = res.headers.get("content-type") || "";
   const body = contentType.includes("application/json") ? await res.json() : await res.text();
-  if (!res.ok) {
-    const detail = typeof body === "object" ? body.detail || pretty(body) : body;
-    throw new Error(detail);
-  }
+  if (!res.ok) throw new Error(typeof body === "object" ? body.detail || pretty(body) : body);
   return body;
+}
+
+function setBusy(button, busy) {
+  button.disabled = busy;
+}
+
+function setSeeker(id) {
+  state.seekerId = id;
+  $("active-seeker").textContent = id ? `${id.slice(0, 8)}…` : "None";
+}
+
+function requireSeeker() {
+  if (!state.seekerId) throw new Error("Start a new loop and save the interpreted profile first.");
+  return state.seekerId;
 }
 
 function parseJson(id) {
@@ -120,137 +68,305 @@ function parseJson(id) {
   return raw ? JSON.parse(raw) : {};
 }
 
-function setSeeker(id) {
-  state.seekerId = id;
-  $("seeker-id").value = id;
-  $("active-seeker").textContent = id ? `${id.slice(0, 8)}…` : "None";
-  localStorage.setItem("aijaa.seekerId", id);
-}
-
-function requireSeeker() {
-  const id = $("seeker-id").value.trim() || state.seekerId;
-  if (!id) throw new Error("Create or enter a seeker id first.");
-  setSeeker(id);
-  return id;
-}
-
 async function refreshHealth() {
   const data = await api("/healthz");
   $("health-dot").className = "ok";
-  $("health-status").textContent = "Online";
+  $("health-status").textContent = "Ready";
   $("health-detail").textContent = `${data.llm_mode} LLM · dry_run=${data.dry_run}`;
-  $("dry-run").textContent = data.dry_run ? "On" : "Off";
+  $("dry-run").textContent = data.dry_run ? "Dry run on" : "Live submit enabled";
 }
 
-async function createSeeker() {
-  const data = await api("/v1/seekers", {
-    method: "POST",
-    body: JSON.stringify({
-      external_ref: $("external-ref").value.trim(),
-      consent_recorded_at: new Date().toISOString(),
-    }),
-  });
-  setSeeker(data.seeker_id);
-  toast("Seeker created.");
+function interpretCvText(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const fullName = lines[0] || "";
+  const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || "";
+  const phone = text.match(/(?:\+?\d[\d\s().-]{7,}\d)/)?.[0] || "";
+  const links = [...text.matchAll(/https?:\/\/\S+/g)].map((m) => m[0].replace(/[),.]$/, ""));
+  const skills = inferSkills(text);
+  const roles = inferRoles(text);
+  const achievements = lines
+    .filter((line) => /^[-•]/.test(line) || /\d/.test(line))
+    .slice(0, 6)
+    .map((line, index) => ({
+      fact_id: `cv_f${index + 1}`,
+      text: line.replace(/^[-•]\s*/, ""),
+      kind: "achievement",
+      quantified: /\d/.test(line),
+    }));
+  const companyLine = lines.find((line) => /\b(engineer|manager|designer|developer|analyst)\b/i.test(line)) || "";
+  const title = roles[0] || "Professional";
+  const location = /tel aviv/i.test(text) ? "Tel Aviv, Israel" : "";
+  const educationLine = lines.find((line) => /university|college|b\.sc|m\.sc|ba|ma|degree/i.test(line));
+
+  return {
+    profile: {
+      contact: { full_name: fullName, email, phone, location, links },
+      work_history: [
+        {
+          company: inferCompany(companyLine) || "Most recent company",
+          title,
+          start: inferStart(companyLine) || "2021-01",
+          end: /present/i.test(companyLine + text.slice(0, 500)) ? null : undefined,
+          location: location || undefined,
+          achievements: achievements.length ? achievements : [{
+            fact_id: "cv_f1",
+            text: "Candidate CV content needs review before tailoring.",
+            kind: "achievement",
+            quantified: false,
+          }],
+        },
+      ],
+      education: educationLine ? [{ institution: educationLine, degree: "", field: "", year: inferYear(educationLine) }] : [],
+      skills: skills.map((skill, index) => ({ fact_id: `cv_s${index + 1}`, text: skill, kind: "skill" })),
+      languages: /hebrew/i.test(text) ? ["English", "Hebrew"] : ["English"],
+      summary_notes: text.slice(0, 1800),
+    },
+    prefs: {
+      target_titles: roles.length ? roles : [title],
+      seniority: /staff|principal/i.test(text) ? "staff" : /senior|lead/i.test(text) ? "senior" : null,
+      industries: inferIndustries(text),
+      locations: location ? [location, "Remote"] : ["Remote"],
+      remote_policy: /remote/i.test(text) ? "remote" : "hybrid",
+      min_salary: Number(text.match(/(?:minimum salary|min salary|salary)\D{0,20}(\d{4,6})/i)?.[1] || 0) || null,
+      currency: /ils|₪/i.test(text) ? "ILS" : "USD",
+      work_authorization: /citizen|authorized|work authorization/i.test(text) ? "Work authorization stated in CV" : null,
+      dealbreakers: /gambling/i.test(text) ? ["gambling"] : [],
+      resume_languages: /hebrew/i.test(text) ? ["en", "he"] : ["en"],
+    },
+  };
 }
 
-async function runIntake() {
-  const seekerId = requireSeeker();
+function inferSkills(text) {
+  const vocab = ["Python", "FastAPI", "PostgreSQL", "Kubernetes", "AWS", "Docker", "Redis", "React", "TypeScript", "JavaScript", "Node", "SQL", "ETL", "Kafka", "GCP", "Azure", "Figma", "Tableau", "Excel"];
+  return vocab.filter((skill) => new RegExp(`\\b${skill.replace("+", "\\+")}\\b`, "i").test(text)).slice(0, 14);
+}
+
+function inferRoles(text) {
+  const roles = [...text.matchAll(/\b(?:Senior |Staff |Lead |Principal )?(?:Backend|Frontend|Full Stack|Software|Data|Platform|DevOps|Product|UX|UI)?\s?(?:Engineer|Developer|Designer|Manager|Analyst)\b/gi)]
+    .map((m) => m[0].replace(/\s+/g, " ").trim())
+    .filter((role) => role.length > 4);
+  return [...new Set(roles)].slice(0, 4);
+}
+
+function inferIndustries(text) {
+  if (/saas|cloud/i.test(text)) return ["SaaS", "Cloud"];
+  if (/finance|bank|fintech/i.test(text)) return ["Fintech"];
+  if (/health|medical/i.test(text)) return ["Healthcare"];
+  return [];
+}
+
+function inferCompany(line) {
+  const parts = line.split(/\s[-–]\s/);
+  return parts.length > 1 ? parts[0].trim() : "";
+}
+
+function inferStart(line) {
+  return line.match(/\b(20\d{2}|19\d{2})(?:[-/](0[1-9]|1[0-2]))?/)?.[0]?.replace("/", "-");
+}
+
+function inferYear(line) {
+  return line.match(/\b(20\d{2}|19\d{2})\b/)?.[0] || null;
+}
+
+async function startNewLoop() {
+  state.selected = null;
+  state.matches = [];
+  setSeeker("");
+  $("selected-job").textContent = "None";
+  $("match-count").textContent = "0";
+  $("completeness").textContent = "0%";
+  $("selected-card").textContent = "Select a job from the search results.";
+  $("match-list").innerHTML = "";
+  $("profile-output").textContent = "No interpreted profile yet.";
+  $("tailor-output").textContent = "No tailored packet yet.";
+  $("timeline-output").textContent = "No application run yet.";
+  toast("New search loop ready.");
+}
+
+async function interpretCv() {
+  const text = $("cv-text").value.trim();
+  if (!text) throw new Error("Drop or paste a CV first.");
+  const interpreted = interpretCvText(text);
+  $("profile-json").value = pretty(interpreted.profile);
+  $("prefs-json").value = pretty(interpreted.prefs);
+  $("profile-output").textContent = "AI-interpreted draft created. Review and edit before saving.";
+  location.hash = "#step-profile";
+  toast("CV interpreted into editable profile.");
+}
+
+async function saveProfile() {
+  let seekerId = state.seekerId;
+  if (!seekerId) {
+    const created = await api("/v1/seekers", {
+      method: "POST",
+      body: JSON.stringify({ external_ref: `search-loop-${Date.now()}`, consent_recorded_at: new Date().toISOString() }),
+    });
+    seekerId = created.seeker_id;
+    setSeeker(seekerId);
+  }
   const data = await api(`/v1/seekers/${seekerId}/intake/turns`, {
     method: "POST",
     body: JSON.stringify({
-      free_text: $("free-text").value,
+      free_text: $("cv-text").value,
       profile_patch: parseJson("profile-json"),
       preferences_patch: parseJson("prefs-json"),
     }),
   });
   $("completeness").textContent = `${data.overall_completeness}%`;
   $("profile-output").textContent = pretty(data);
-  toast("Intake turn saved.");
-  await refreshProfile();
+  toast("Editable profile saved.");
 }
 
-async function refreshProfile() {
+async function buildMasterFiles() {
   const seekerId = requireSeeker();
-  const data = await api(`/v1/seekers/${seekerId}/profile`);
-  $("completeness").textContent = `${data.completeness.overall}%`;
-  $("profile-output").textContent = pretty(data);
-  return data;
+  const prefs = parseJson("prefs-json");
+  const langs = prefs.resume_languages?.length ? prefs.resume_languages : ["en"];
+  const docs = [];
+  for (const language of langs) {
+    docs.push(await api(`/v1/seekers/${seekerId}/resume`, {
+      method: "POST",
+      body: JSON.stringify({ language }),
+    }));
+  }
+  $("profile-output").textContent = pretty(docs);
+  toast("Master CV files generated.");
 }
 
-async function buildResume(language) {
+async function searchJobs() {
   const seekerId = requireSeeker();
-  const data = await api(`/v1/seekers/${seekerId}/resume`, {
+  await api("/v1/discovery/run", {
     method: "POST",
-    body: JSON.stringify({ language }),
+    body: JSON.stringify({
+      fixtures_dir: $("fixtures-dir").value.trim() || null,
+      greenhouse_orgs: splitList("greenhouse-orgs"),
+      lever_orgs: splitList("lever-orgs"),
+    }),
   });
-  $("resume-output").textContent = pretty(data);
-  toast(`${language.toUpperCase()} resume generated.`);
-}
-
-async function runDiscovery() {
-  const body = {
-    fixtures_dir: $("fixtures-dir").value.trim() || null,
-    greenhouse_orgs: splitList("greenhouse-orgs"),
-    lever_orgs: splitList("lever-orgs"),
-  };
-  const data = await api("/v1/discovery/run", { method: "POST", body: JSON.stringify(body) });
-  toast(`Discovery complete: ${data.created} created, ${data.updated} updated.`);
-  return data;
+  await api(`/v1/seekers/${seekerId}/match/run`, { method: "POST" });
+  await refreshMatches();
+  location.hash = "#step-search";
+  toast("Search complete.");
 }
 
 function splitList(id) {
   return $(id).value.split(",").map((x) => x.trim()).filter(Boolean);
 }
 
-async function runMatching() {
-  const seekerId = requireSeeker();
-  const data = await api(`/v1/seekers/${seekerId}/match/run`, { method: "POST" });
-  toast(`Matching complete: ${data.matches_created} new matches.`);
-  await refreshMatches();
-}
-
 async function refreshMatches() {
   const seekerId = requireSeeker();
-  const matches = await api(`/v1/seekers/${seekerId}/matches`);
-  state.matches = matches;
-  $("pending-count").textContent = matches.filter((m) => m.status === "pending").length;
-  renderMatches(matches);
+  state.matches = await api(`/v1/seekers/${seekerId}/matches`);
+  $("match-count").textContent = String(state.matches.length);
+  renderMatches();
 }
 
-function renderMatches(matches) {
+function renderMatches() {
   const host = $("match-list");
-  if (!matches.length) {
-    host.innerHTML = "<div class=\"empty\">No surfaced matches yet.</div>";
+  if (!state.matches.length) {
+    host.innerHTML = "<p>No surfaced jobs yet.</p>";
     return;
   }
   host.innerHTML = "";
-  for (const match of matches) {
+  for (const match of state.matches) {
+    const selected = state.selected?.match_id === match.match_id;
+    const risks = (match.risks || []).map((risk) => `<span class="pill">${escapeHtml(risk)}</span>`).join(" ");
     const card = document.createElement("article");
-    card.className = "match-card";
-    const risks = (match.risks || []).map((risk) => `<span class="pill">${risk}</span>`).join(" ");
-    const decided = match.status !== "pending";
+    card.className = `job-card ${selected ? "selected" : ""}`;
     card.innerHTML = `
       <div>
-        <div class="match-title">
+        <div class="job-title">
           <span class="score">${match.score}</span>
           <strong>${escapeHtml(match.posting?.company || "Unknown")}</strong>
           <span>${escapeHtml(match.posting?.title || "Untitled role")}</span>
-          <span class="pill">${match.status}</span>
-          <span class="pill">${match.application_status || "not started"}</span>
+          <span class="pill">${escapeHtml(match.status)}</span>
+          <span class="pill">${escapeHtml(match.application_status || "not started")}</span>
         </div>
         <p>${escapeHtml(match.rationale || "")}</p>
-        <div class="risk-row">${risks}</div>
+        <div>${risks}</div>
       </div>
-      <div class="match-actions">
-        <button class="primary" data-action="approve" data-id="${match.match_id}" ${decided ? "disabled" : ""}>Approve</button>
-        <button class="secondary" data-action="reject" data-id="${match.match_id}" ${decided ? "disabled" : ""}>Reject</button>
-        <button class="secondary" data-action="handoff" data-id="${match.match_id}">Handoff</button>
-        <button class="secondary" data-action="select-app" data-id="${match.application_id || ""}">Select App</button>
+      <div class="job-actions">
+        <button class="primary" data-action="select" data-id="${match.match_id}">Select Job</button>
       </div>
     `;
     host.appendChild(card);
   }
+}
+
+function selectMatch(matchId) {
+  state.selected = state.matches.find((match) => match.match_id === matchId);
+  if (!state.selected) throw new Error("Could not select job.");
+  $("selected-job").textContent = `${state.selected.posting.company}`;
+  $("selected-card").textContent = pretty(state.selected);
+  renderMatches();
+  location.hash = "#step-tailor";
+}
+
+async function approveSelected() {
+  const selected = requireSelected();
+  if (selected.status !== "approved") {
+    await api(`/v1/matches/${selected.match_id}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ decision: "approved", decided_by: "candidate-loop" }),
+    });
+  }
+  await refreshMatches();
+  state.selected = state.matches.find((match) => match.match_id === selected.match_id);
+  $("selected-card").textContent = pretty(state.selected);
+  toast("Selected job approved.");
+}
+
+async function tailorSelected() {
+  const selected = requireSelected();
+  if (selected.status !== "approved") await approveSelected();
+  const current = state.matches.find((match) => match.match_id === selected.match_id) || selected;
+  const app = await api(`/v1/applications/${current.application_id}/tailor`, { method: "POST" });
+  $("tailor-output").textContent = pretty(app);
+  toast("Tailored CV files created.");
+}
+
+async function viewHandoff() {
+  const selected = requireSelected();
+  const packet = await api(`/v1/matches/${selected.match_id}/handoff`);
+  $("tailor-output").textContent = pretty(packet);
+  toast("Tailored packet loaded.");
+}
+
+async function applySelected() {
+  const selected = requireSelected();
+  const app = await api(`/v1/applications/${selected.application_id}/run`, { method: "POST" });
+  $("timeline-output").textContent = pretty(app);
+  await loadTimeline();
+  location.hash = "#step-apply";
+  toast(`Application status: ${app.status}.`);
+}
+
+async function loadTimeline() {
+  const selected = requireSelected();
+  const data = await api(`/v1/applications/${selected.application_id}/timeline`);
+  $("timeline-output").innerHTML = data.events?.length ? renderTimeline(data.events) : `<pre>${pretty(data)}</pre>`;
+}
+
+async function confirmSubmit() {
+  const selected = requireSelected();
+  const data = await api(`/v1/applications/${selected.application_id}/confirm-submit`, {
+    method: "POST",
+    body: JSON.stringify({ confirmed_by: "candidate-loop" }),
+  });
+  $("timeline-output").textContent = pretty(data);
+  toast(`Submit gate handled: ${data.status}.`);
+}
+
+function requireSelected() {
+  if (!state.selected) throw new Error("Select a job first.");
+  return state.selected;
+}
+
+function renderTimeline(events) {
+  return events.map((event) => `
+    <div class="timeline-row">
+      <div><strong>${escapeHtml(event.kind)}</strong><span>${escapeHtml(event.ts || "")}</span></div>
+      <p>${escapeHtml(event.event || event.to || event.evidence_kind || event.reason || "")}</p>
+    </div>
+  `).join("");
 }
 
 function escapeHtml(value) {
@@ -261,85 +377,6 @@ function escapeHtml(value) {
     "\"": "&quot;",
     "'": "&#039;",
   })[ch]);
-}
-
-async function decide(matchId, decision) {
-  const data = await api(`/v1/matches/${matchId}/decision`, {
-    method: "POST",
-    body: JSON.stringify({
-      decision,
-      decided_by: $("operator-id").value.trim() || "operator",
-    }),
-  });
-  toast(`Match ${data.status}.`);
-  await refreshMatches();
-}
-
-async function handoff(matchId) {
-  const data = await api(`/v1/matches/${matchId}/handoff`);
-  $("timeline-output").textContent = pretty(data);
-  if (data.application_status) {
-    const match = state.matches.find((m) => m.match_id === matchId);
-    if (match?.application_id) $("application-id").value = match.application_id;
-  }
-  toast("Handoff packet loaded.");
-}
-
-async function runApplication() {
-  const appId = $("application-id").value.trim();
-  if (!appId) throw new Error("Select or enter an application id.");
-  const data = await api(`/v1/applications/${appId}/run`, { method: "POST" });
-  $("timeline-output").textContent = pretty(data);
-  toast(`Application status: ${data.status}.`);
-  await loadTimeline();
-}
-
-async function loadTimeline() {
-  const appId = $("application-id").value.trim();
-  if (!appId) throw new Error("Select or enter an application id.");
-  const data = await api(`/v1/applications/${appId}/timeline`);
-  $("timeline-output").innerHTML = data.events?.length ? renderTimeline(data.events) : `<pre>${pretty(data)}</pre>`;
-}
-
-function renderTimeline(events) {
-  return events.map((event) => `
-    <div class="timeline-row">
-      <div>
-        <strong>${escapeHtml(event.kind)}</strong>
-        <span>${escapeHtml(event.ts || "")}</span>
-      </div>
-      <p>${escapeHtml(event.event || event.to || event.evidence_kind || event.reason || "")}</p>
-    </div>
-  `).join("");
-}
-
-async function confirmSubmit() {
-  const appId = $("application-id").value.trim();
-  if (!appId) throw new Error("Select or enter an application id.");
-  const data = await api(`/v1/applications/${appId}/confirm-submit`, {
-    method: "POST",
-    body: JSON.stringify({ confirmed_by: $("operator-id").value.trim() || "operator" }),
-  });
-  $("timeline-output").textContent = pretty(data);
-  toast(`Submit confirmation handled: ${data.status}.`);
-}
-
-async function refreshObservability() {
-  const seekerId = requireSeeker();
-  const [pipeline, usage, metrics] = await Promise.all([
-    api(`/v1/seekers/${seekerId}/pipeline`),
-    api(`/v1/seekers/${seekerId}/usage?window=30d`),
-    fetch("/metrics").then((r) => r.text()),
-  ]);
-  $("pipeline-output").textContent = pretty(pipeline);
-  $("usage-output").textContent = `${pretty(usage)}\n\n${metrics}`;
-}
-
-async function refreshAll() {
-  await refreshHealth();
-  if (state.seekerId) {
-    await Promise.allSettled([refreshProfile(), refreshMatches(), refreshObservability()]);
-  }
 }
 
 function attach(id, fn) {
@@ -355,56 +392,52 @@ function attach(id, fn) {
   });
 }
 
-function loadSample() {
-  $("profile-json").value = pretty(sampleProfile);
-  $("prefs-json").value = pretty(samplePrefs);
-  $("free-text").value = "Customer-ready sample profile for Dana Levi.";
-  toast("Sample candidate loaded.");
+function setupDropzone() {
+  const zone = $("dropzone");
+  const input = $("cv-file");
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    $("cv-text").value = await file.text();
+    toast(`Loaded ${file.name}.`);
+  });
+  for (const eventName of ["dragenter", "dragover"]) {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.add("drag");
+    });
+  }
+  for (const eventName of ["dragleave", "drop"]) {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      zone.classList.remove("drag");
+    });
+  }
 }
 
 function boot() {
-  $("profile-json").value = pretty(sampleProfile);
-  $("prefs-json").value = pretty(samplePrefs);
-  if (state.seekerId) setSeeker(state.seekerId);
-
-  attach("refresh-btn", refreshAll);
-  attach("sample-btn", loadSample);
-  attach("create-seeker-btn", createSeeker);
-  attach("intake-btn", runIntake);
-  attach("profile-btn", refreshProfile);
-  attach("resume-en-btn", () => buildResume("en"));
-  attach("resume-he-btn", () => buildResume("he"));
-  attach("discovery-btn", runDiscovery);
-  attach("matching-btn", runMatching);
-  attach("matches-btn", refreshMatches);
-  attach("run-app-btn", runApplication);
+  setupDropzone();
+  attach("new-loop-btn", startNewLoop);
+  attach("sample-btn", () => {
+    $("cv-text").value = sampleCv;
+    toast("Sample CV loaded.");
+  });
+  attach("interpret-btn", interpretCv);
+  attach("save-profile-btn", saveProfile);
+  attach("build-master-btn", buildMasterFiles);
+  attach("search-btn", searchJobs);
+  attach("refresh-matches-btn", refreshMatches);
+  attach("approve-btn", approveSelected);
+  attach("tailor-btn", tailorSelected);
+  attach("handoff-btn", viewHandoff);
+  attach("apply-btn", applySelected);
   attach("timeline-btn", loadTimeline);
   attach("submit-btn", confirmSubmit);
-  attach("observability-btn", refreshObservability);
-
-  $("match-list").addEventListener("click", async (event) => {
-    const button = event.target.closest("button");
-    if (!button) return;
-    setBusy(button, true);
-    try {
-      const action = button.dataset.action;
-      const id = button.dataset.id;
-      if (action === "approve") await decide(id, "approved");
-      if (action === "reject") await decide(id, "rejected");
-      if (action === "handoff") await handoff(id);
-      if (action === "select-app") {
-        if (!id) throw new Error("No application id on this match yet.");
-        $("application-id").value = id;
-        toast("Application selected.");
-      }
-    } catch (error) {
-      toast(error.message, "error");
-    } finally {
-      setBusy(button, false);
-    }
+  $("match-list").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='select']");
+    if (button) selectMatch(button.dataset.id);
   });
-
-  refreshAll().catch((error) => toast(error.message, "error"));
+  refreshHealth().catch((error) => toast(error.message, "error"));
 }
 
 boot();

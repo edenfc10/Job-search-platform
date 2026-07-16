@@ -3,191 +3,151 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIJAA Operator Console</title>
+    <title>AIJAA Search Loop</title>
     <link rel="stylesheet" href="/static/styles.css">
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="rail">
-        <div class="brand">
-          <div class="brand-mark">A</div>
-          <div>
-            <strong>AIJAA</strong>
-            <span>Operator Console</span>
-          </div>
+    <main class="loop-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">AIJAA Search Loop</p>
+          <h1>Drop a CV. Review the AI profile. Search, tailor, and apply.</h1>
+          <p class="subcopy">A guided workspace for turning one candidate CV into matched jobs, tailored files, and guarded application submissions.</p>
         </div>
-        <nav>
-          <a href="#overview">Overview</a>
-          <a href="#intake">Intake</a>
-          <a href="#matches">Matches</a>
-          <a href="#applications">Applications</a>
-          <a href="#observability">Observability</a>
-        </nav>
-        <div class="safety">
+        <div class="mode-card">
           <span id="health-dot"></span>
+          <strong id="health-status">Checking API</strong>
+          <small id="health-detail">Connecting</small>
+        </div>
+      </header>
+
+      <nav class="steps" aria-label="Search loop steps">
+        <a class="step active" href="#step-cv"><span>1</span>CV</a>
+        <a class="step" href="#step-profile"><span>2</span>Profile</a>
+        <a class="step" href="#step-search"><span>3</span>Search</a>
+        <a class="step" href="#step-tailor"><span>4</span>Tailor</a>
+        <a class="step" href="#step-apply"><span>5</span>Apply</a>
+      </nav>
+
+      <section class="summary-grid">
+        <div class="metric"><span>Active seeker</span><strong id="active-seeker">None</strong></div>
+        <div class="metric"><span>Profile quality</span><strong id="completeness">0%</strong></div>
+        <div class="metric"><span>Surfaced jobs</span><strong id="match-count">0</strong></div>
+        <div class="metric"><span>Selected job</span><strong id="selected-job">None</strong></div>
+      </section>
+
+      <section class="panel" id="step-cv">
+        <div class="panel-head">
           <div>
-            <strong id="health-status">Checking</strong>
-            <small id="health-detail">Connecting to local API</small>
+            <p class="eyebrow">Step 1</p>
+            <h2>Drop CV</h2>
+            <p>Start a new search loop by dropping a text CV, or paste CV content below.</p>
+          </div>
+          <button class="secondary" id="new-loop-btn" type="button">Start New Loop</button>
+        </div>
+        <div class="dropzone" id="dropzone">
+          <input id="cv-file" type="file" accept=".txt,.md,.text,.json">
+          <strong>Drop CV file here</strong>
+          <span>TXT/MD works best in this local build. Paste text for PDF/DOCX content.</span>
+        </div>
+        <label>
+          CV text
+          <textarea id="cv-text" rows="12" placeholder="Paste the candidate CV here..."></textarea>
+        </label>
+        <div class="button-row">
+          <button class="primary" id="interpret-btn" type="button">Interpret CV Into Editable Profile</button>
+          <button class="secondary" id="sample-btn" type="button">Use Sample CV</button>
+        </div>
+      </section>
+
+      <section class="panel" id="step-profile">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Step 2</p>
+            <h2>Edit AI Profile</h2>
+            <p>Review and edit the interpreted profile before searching. This is the source of truth for tailoring and answers.</p>
           </div>
         </div>
-      </aside>
-
-      <main>
-        <header class="topbar">
+        <div class="editor-grid">
           <div>
-            <h1>Job Application Operations</h1>
-            <p>Profile intake, curated matches, approvals, and submit gates in one workflow.</p>
+            <h3>Candidate facts</h3>
+            <textarea id="profile-json" rows="22" spellcheck="false"></textarea>
           </div>
-          <div class="top-actions">
-            <button class="icon-button" id="refresh-btn" title="Refresh dashboard" type="button">↻</button>
-            <button class="primary" id="sample-btn" type="button">Load Sample Candidate</button>
+          <div>
+            <h3>Search preferences</h3>
+            <textarea id="prefs-json" rows="22" spellcheck="false"></textarea>
           </div>
-        </header>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="save-profile-btn" type="button">Save Editable Profile</button>
+          <button class="secondary" id="build-master-btn" type="button">Build Master CV Files</button>
+        </div>
+        <pre id="profile-output">No interpreted profile yet.</pre>
+      </section>
 
-        <section class="status-grid" id="overview">
-          <div class="metric">
-            <span>Active Seeker</span>
-            <strong id="active-seeker">None</strong>
+      <section class="panel" id="step-search">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Step 3</p>
+            <h2>Search Jobs Based On CV</h2>
+            <p>Run discovery and matching. Jobs below the fit floor are withheld automatically.</p>
           </div>
-          <div class="metric">
-            <span>Completeness</span>
-            <strong id="completeness">0%</strong>
-          </div>
-          <div class="metric">
-            <span>Pending Matches</span>
-            <strong id="pending-count">0</strong>
-          </div>
-          <div class="metric">
-            <span>Dry Run</span>
-            <strong id="dry-run">Unknown</strong>
-          </div>
-        </section>
+        </div>
+        <div class="source-row">
+          <label>
+            Fixture source
+            <input id="fixtures-dir" value="fixtures/postings">
+          </label>
+          <label>
+            Greenhouse orgs
+            <input id="greenhouse-orgs" placeholder="comma-separated public board ids">
+          </label>
+          <label>
+            Lever orgs
+            <input id="lever-orgs" placeholder="comma-separated public board ids">
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="search-btn" type="button">Search For Jobs</button>
+          <button class="secondary" id="refresh-matches-btn" type="button">Refresh Results</button>
+        </div>
+        <div id="match-list" class="job-list"></div>
+      </section>
 
-        <section class="workspace">
-          <div class="panel" id="intake">
-            <div class="panel-head">
-              <div>
-                <h2>Candidate Intake</h2>
-                <p>Create or load a seeker, then capture structured profile facts.</p>
-              </div>
-              <button class="secondary" id="create-seeker-btn" type="button">New Seeker</button>
-            </div>
-            <div class="form-grid">
-              <label>
-                External reference
-                <input id="external-ref" value="customer-candidate-1">
-              </label>
-              <label>
-                Seeker ID
-                <input id="seeker-id" placeholder="Create or paste an existing seeker id">
-              </label>
-            </div>
-            <label>
-              Free-form intake notes
-              <textarea id="free-text" rows="5" placeholder="Paste resume notes, recruiter notes, or candidate answers."></textarea>
-            </label>
-            <details open>
-              <summary>Structured profile patch</summary>
-              <textarea id="profile-json" rows="10" spellcheck="false"></textarea>
-            </details>
-            <details>
-              <summary>Preferences patch</summary>
-              <textarea id="prefs-json" rows="8" spellcheck="false"></textarea>
-            </details>
-            <div class="button-row">
-              <button class="primary" id="intake-btn" type="button">Run Intake Turn</button>
-              <button class="secondary" id="profile-btn" type="button">Refresh Profile</button>
-              <button class="secondary" id="resume-en-btn" type="button">Build EN Resume</button>
-              <button class="secondary" id="resume-he-btn" type="button">Build HE Resume</button>
-            </div>
-            <div class="split-output">
-              <div>
-                <h3>Profile</h3>
-                <pre id="profile-output">No profile loaded.</pre>
-              </div>
-              <div>
-                <h3>Resume</h3>
-                <pre id="resume-output">No resume generated.</pre>
-              </div>
-            </div>
+      <section class="panel" id="step-tailor">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Step 4</p>
+            <h2>Tailor CV For Selected Job</h2>
+            <p>Approve the selected job, then create a tailored CV using only supported candidate facts.</p>
           </div>
+        </div>
+        <div class="selected-card" id="selected-card">Select a job from the search results.</div>
+        <div class="button-row">
+          <button class="primary" id="approve-btn" type="button">Approve Selected Job</button>
+          <button class="primary" id="tailor-btn" type="button">Tailor CV Files</button>
+          <button class="secondary" id="handoff-btn" type="button">View Tailored Packet</button>
+        </div>
+        <pre id="tailor-output">No tailored packet yet.</pre>
+      </section>
 
-          <div class="panel" id="matches">
-            <div class="panel-head">
-              <div>
-                <h2>Discovery & Matching</h2>
-                <p>Run fixture discovery or public board connectors, then review only 70+ matches.</p>
-              </div>
-            </div>
-            <div class="form-grid three">
-              <label>
-                Fixture directory
-                <input id="fixtures-dir" value="fixtures/postings">
-              </label>
-              <label>
-                Greenhouse orgs
-                <input id="greenhouse-orgs" placeholder="comma-separated">
-              </label>
-              <label>
-                Lever orgs
-                <input id="lever-orgs" placeholder="comma-separated">
-              </label>
-            </div>
-            <div class="button-row">
-              <button class="primary" id="discovery-btn" type="button">Run Discovery</button>
-              <button class="primary" id="matching-btn" type="button">Run Matching</button>
-              <button class="secondary" id="matches-btn" type="button">Refresh Matches</button>
-            </div>
-            <div id="match-list" class="match-list"></div>
+      <section class="panel" id="step-apply">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Step 5</p>
+            <h2>Apply With Tailored Files</h2>
+            <p>The system fills the application and stops at the human pre-submit gate. Dry-run stays on unless explicitly changed in the environment.</p>
           </div>
-
-          <div class="panel" id="applications">
-            <div class="panel-head">
-              <div>
-                <h2>Applications</h2>
-                <p>Advance approved roles to the pre-submit gate and inspect evidence.</p>
-              </div>
-            </div>
-            <div class="form-grid">
-              <label>
-                Application ID
-                <input id="application-id" placeholder="Select a match to populate">
-              </label>
-              <label>
-                Operator
-                <input id="operator-id" value="operator@customer">
-              </label>
-            </div>
-            <div class="button-row">
-              <button class="primary" id="run-app-btn" type="button">Run Application</button>
-              <button class="secondary" id="timeline-btn" type="button">Load Timeline</button>
-              <button class="secondary danger" id="submit-btn" type="button">Confirm Submit</button>
-            </div>
-            <div class="timeline" id="timeline-output">No timeline loaded.</div>
-          </div>
-
-          <div class="panel" id="observability">
-            <div class="panel-head">
-              <div>
-                <h2>Observability</h2>
-                <p>Pipeline state, usage, and service metrics for support calls.</p>
-              </div>
-              <button class="secondary" id="observability-btn" type="button">Refresh</button>
-            </div>
-            <div class="split-output">
-              <div>
-                <h3>Pipeline</h3>
-                <pre id="pipeline-output">No pipeline data.</pre>
-              </div>
-              <div>
-                <h3>Usage & Metrics</h3>
-                <pre id="usage-output">No usage data.</pre>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
+          <span class="status-pill" id="dry-run">Dry run unknown</span>
+        </div>
+        <div class="button-row">
+          <button class="primary" id="apply-btn" type="button">Fill Application</button>
+          <button class="secondary" id="timeline-btn" type="button">Review Timeline</button>
+          <button class="secondary danger" id="submit-btn" type="button">Confirm Submit</button>
+        </div>
+        <div class="timeline" id="timeline-output">No application run yet.</div>
+      </section>
+    </main>
 
     <div id="toast" role="status" aria-live="polite"></div>
     <script src="/static/app.js"></script>

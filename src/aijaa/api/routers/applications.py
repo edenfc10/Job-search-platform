@@ -10,6 +10,7 @@ from aijaa.application.service import (
     confirm_and_submit,
     provide_human_input,
     run_application,
+    tailor_for_application,
 )
 from aijaa.core import repo
 from aijaa.core.db import get_session
@@ -32,6 +33,18 @@ async def run(application_id: str, s: AsyncSession = Depends(get_session)):
     await _load(s, application_id)
     try:
         app = await run_application(s, application_id)
+    except ApprovalMissing as e:
+        raise HTTPException(403, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    return app.model_dump(mode="json")
+
+
+@router.post("/{application_id}/tailor")
+async def tailor(application_id: str, s: AsyncSession = Depends(get_session)):
+    app = await _load(s, application_id)
+    try:
+        app = await tailor_for_application(s, app)
     except ApprovalMissing as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:
