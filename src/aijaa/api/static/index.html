@@ -36,6 +36,18 @@
         <div class="metric"><span>Selected job</span><strong id="selected-job">None</strong></div>
       </section>
 
+      <section class="panel readiness" id="readiness-panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Production Readiness</p>
+            <h2 id="readiness-title">Checking configuration</h2>
+            <p id="readiness-copy">AIJAA validates production requirements before real operation.</p>
+          </div>
+          <span class="status-pill" id="production-mode">Mode unknown</span>
+        </div>
+        <div id="readiness-list" class="check-list"></div>
+      </section>
+
       <section class="panel" id="step-cv">
         <div class="panel-head">
           <div>
@@ -56,7 +68,7 @@
         </label>
         <div class="button-row">
           <button class="primary" id="interpret-btn" type="button">Interpret CV Into Editable Profile</button>
-          <button class="secondary" id="sample-btn" type="button">Use Sample CV</button>
+          <button class="secondary demo-only" id="sample-btn" type="button">Use Sample CV</button>
         </div>
       </section>
 
@@ -93,11 +105,13 @@
             <p>Run discovery and matching. Jobs below the fit floor are withheld automatically.</p>
           </div>
         </div>
-        <div class="source-row">
+        <div class="source-row demo-only">
           <label>
             Fixture source
             <input id="fixtures-dir" value="fixtures/postings">
           </label>
+        </div>
+        <div class="source-row">
           <label>
             Greenhouse orgs
             <input id="greenhouse-orgs" placeholder="comma-separated public board ids">
@@ -106,6 +120,17 @@
             Lever orgs
             <input id="lever-orgs" placeholder="comma-separated public board ids">
           </label>
+          <label>
+            Manual job URL
+            <input id="manual-url" placeholder="https://company.com/careers/job">
+          </label>
+        </div>
+        <label>
+          Manual job description
+          <textarea id="manual-description" rows="5" placeholder="Optional but recommended when the page is hard to parse or gated."></textarea>
+        </label>
+        <div class="source-note">
+          LinkedIn and Israeli boards should be used through approved APIs/feeds or manual URLs. AIJAA will not scrape or bypass access controls.
         </div>
         <div class="button-row">
           <button class="primary" id="search-btn" type="button">Search For Jobs</button>

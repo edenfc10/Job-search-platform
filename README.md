@@ -44,6 +44,8 @@ Copy `.env.example` to `.env`, set `AIJAA_OPENAI_API_KEY`, and run the API:
 ```bash
 cp .env.example .env
 # edit .env with the real key
+.venv/bin/pip install -e ".[dev,apply]"
+.venv/bin/python scripts/check_production.py
 .venv/bin/uvicorn aijaa.api.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -52,6 +54,10 @@ Required settings:
 - `AIJAA_FAKE_LLM=false`
 - `AIJAA_LLM_PROVIDER=openai`
 - `AIJAA_OPENAI_API_KEY=...`
+- `AIJAA_PRODUCTION_MODE=true`
+- `AIJAA_APPLY_DRIVER=playwright`
+- at least one real source: `AIJAA_ENABLE_MANUAL_URLS=true`,
+  `AIJAA_GREENHOUSE_ORGS`, `AIJAA_LEVER_ORGS`, or a permissioned partner feed
 
 Defaults:
 
@@ -60,6 +66,42 @@ Defaults:
 
 Keep `AIJAA_DRY_RUN=true` while using real models unless the production
 submit-readiness checklist below is complete.
+
+Production mode disables sample/fixture controls in the UI, ignores fixture
+sources, does not mount the local mock ATS, and reports missing requirements from
+`/healthz`. Manual job URLs are supported through `POST /v1/jobs/manual` and the
+search UI. LinkedIn, Drushim, AllJobs, and JobMaster should only be used via
+approved APIs/feeds/permissioned access or user-provided manual URLs; AIJAA does
+not scrape them or bypass access controls.
+
+## Production QA
+
+1. Install runtime dependencies:
+
+```bash
+.venv/bin/pip install -e ".[dev,apply]"
+```
+
+2. Validate configuration:
+
+```bash
+.venv/bin/python scripts/check_production.py
+```
+
+3. Start supervised production:
+
+```bash
+.venv/bin/uvicorn aijaa.api.app:app --host 127.0.0.1 --port 8000
+```
+
+4. In the UI, confirm `/healthz` shows `production_ready=true`,
+   `llm_mode=openai`, and `dry_run=true`.
+5. Upload/paste a real CV, interpret with OpenAI, review/edit profile fields, and
+   build master CV files.
+6. Add real sources: configured Greenhouse/Lever orgs or manual job URLs.
+7. Search/match, select one job, approve it, tailor CV files, then run preflight
+   and fill to `ready_to_submit`.
+8. Inspect the timeline/evidence and tailored packet before any final submit.
 
 ## Operator Flow
 

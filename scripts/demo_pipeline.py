@@ -24,13 +24,12 @@ from aijaa.application import service  # noqa: E402
 from aijaa.application.browser import HttpFormDriver  # noqa: E402
 from aijaa.core import repo  # noqa: E402
 from aijaa.core.db import init_db, session_factory  # noqa: E402
-from aijaa.testkit.mockboard import create_mock_ats  # noqa: E402
-from aijaa.core.models import CareerPreferences, ProfessionalProfile  # noqa: E402
 from aijaa.discovery.runner import run_discovery  # noqa: E402
 from aijaa.discovery.sources.fixture import FixtureSource  # noqa: E402
 from aijaa.intake.engine import IntakeTurnRequest, run_turn  # noqa: E402
 from aijaa.matching.service import run_matching  # noqa: E402
 from aijaa.resume.service import build_master_resume  # noqa: E402
+from aijaa.testkit.mockboard import create_mock_ats  # noqa: E402
 
 HERE = os.path.dirname(__file__)
 FIXTURES = os.path.join(HERE, "..", "fixtures", "postings")

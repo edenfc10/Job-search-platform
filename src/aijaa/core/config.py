@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./aijaa.db"
     artifacts_dir: str = "./artifacts"
     public_base_url: str = "http://127.0.0.1:8000"
+    production_mode: bool = False
 
     llm_provider: str = "fake"  # fake | openai | anthropic
     openai_api_key: str = ""
@@ -25,6 +26,12 @@ class Settings(BaseSettings):
     dry_run: bool = True
     # "http" (plain HTML forms, mockboard, QA) or "playwright" (real browser).
     apply_driver: str = "http"
+    enable_fixture_sources: bool = True
+    enable_manual_urls: bool = True
+    greenhouse_orgs: str = ""
+    lever_orgs: str = ""
+    israeli_partner_sources: str = ""  # comma list of permissioned partner/feed names
+    linkedin_approved_access: bool = False
 
     operator_webhook_url: str = ""
     webhook_signing_secret: str = "dev-secret-change-me"

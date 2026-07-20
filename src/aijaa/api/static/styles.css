@@ -140,6 +140,7 @@ h3 {
 .metric { padding: 16px; }
 .metric span { display: block; margin-bottom: 8px; font-size: 13px; }
 .metric strong { display: block; font-size: 21px; overflow-wrap: anywhere; }
+.hidden { display: none !important; }
 
 .panel {
   padding: 20px;
@@ -243,6 +244,35 @@ button:disabled {
 
 .source-row {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.source-note {
+  margin: 2px 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.check-list {
+  display: grid;
+  gap: 8px;
+}
+
+.check-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.check-item strong {
+  color: var(--accent);
+}
+
+.check-item.missing strong {
+  color: var(--red);
 }
 
 pre, .timeline, .selected-card {

@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from aijaa.application.analyzer import analyze
+from aijaa.application.browser import get_driver
 from aijaa.application.gate import ApprovalMissing
 from aijaa.application.service import (
     confirm_and_submit,
@@ -50,6 +52,31 @@ async def tailor(application_id: str, s: AsyncSession = Depends(get_session)):
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
     return app.model_dump(mode="json")
+
+
+@router.post("/{application_id}/preflight")
+async def preflight(application_id: str, s: AsyncSession = Depends(get_session)):
+    app = await _load(s, application_id)
+    if app.status == "approved":
+        app = await tailor_for_application(s, app)
+    if app.status != "tailored":
+        raise HTTPException(409, f"application is {app.status}, not tailored/preflightable")
+    driver = get_driver()
+    try:
+        app = await analyze(s, app, driver, f"/tmp/aijaa_preflight_{application_id}")
+    finally:
+        await driver.close()
+    confidence = (app.plan or {}).get("confidence")
+    blockers = (app.plan or {}).get("blockers", [])
+    return {
+        "application_id": app.id,
+        "status": app.status,
+        "platform": (app.plan or {}).get("platform"),
+        "confidence": confidence,
+        "blockers": blockers,
+        "needs_human_reason": app.needs_human_reason,
+        "preflight_passed": app.status == "tailored" and confidence in {"high", "medium"} and not blockers,
+    }
 
 
 class HumanInputRequest(BaseModel):

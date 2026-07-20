@@ -2,6 +2,7 @@ const state = {
   seekerId: "",
   selected: null,
   matches: [],
+  health: null,
 };
 
 const sampleCv = `Dana Levi
@@ -70,10 +71,39 @@ function parseJson(id) {
 
 async function refreshHealth() {
   const data = await api("/healthz");
+  state.health = data;
   $("health-dot").className = "ok";
-  $("health-status").textContent = "Ready";
+  $("health-status").textContent = data.production_ready ? "Ready" : "Needs configuration";
   $("health-detail").textContent = `${data.llm_mode} LLM · dry_run=${data.dry_run}`;
   $("dry-run").textContent = data.dry_run ? "Dry run on" : "Live submit enabled";
+  renderReadiness(data);
+  document.querySelectorAll(".demo-only").forEach((el) => {
+    el.classList.toggle("hidden", Boolean(data.production_mode));
+  });
+  if (data.production_mode) $("fixtures-dir").value = "";
+  $("greenhouse-orgs").value = (data.configured_greenhouse_orgs || []).join(", ");
+  $("lever-orgs").value = (data.configured_lever_orgs || []).join(", ");
+}
+
+function renderReadiness(data) {
+  $("production-mode").textContent = data.production_mode ? "Production mode" : "Demo mode";
+  $("readiness-title").textContent = data.production_ready ? "Operationally ready" : "Configuration required";
+  $("readiness-copy").textContent = data.production_mode
+    ? "Production mode uses real OpenAI calls and real sources only."
+    : "Demo mode allows fixtures and sample data. Enable production mode for customer operation.";
+  const checks = [
+    ["OpenAI provider", data.llm_mode === "openai" || !data.production_mode],
+    ["OpenAI API key", !data.missing_requirements?.includes("AIJAA_OPENAI_API_KEY")],
+    ["Real job source", !(data.missing_requirements || []).some((x) => x.startsWith("at least one real source"))],
+    ["Playwright apply driver", data.apply_driver === "playwright" || !data.production_mode],
+    ["Dry-run supervised launch", data.dry_run],
+  ];
+  $("readiness-list").innerHTML = checks.map(([label, ok]) => `
+    <div class="check-item ${ok ? "" : "missing"}">
+      <strong>${ok ? "OK" : "Missing"}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `).join("");
 }
 
 function interpretCvText(text) {
@@ -186,6 +216,32 @@ async function startNewLoop() {
 async function interpretCv() {
   const text = $("cv-text").value.trim();
   if (!text) throw new Error("Drop or paste a CV first.");
+  if (state.health?.production_mode) {
+    let seekerId = state.seekerId;
+    if (!seekerId) {
+      const created = await api("/v1/seekers", {
+        method: "POST",
+        body: JSON.stringify({
+          external_ref: `search-loop-${Date.now()}`,
+          consent_recorded_at: new Date().toISOString(),
+        }),
+      });
+      seekerId = created.seeker_id;
+      setSeeker(seekerId);
+    }
+    await api(`/v1/seekers/${seekerId}/intake/turns`, {
+      method: "POST",
+      body: JSON.stringify({ free_text: text }),
+    });
+    const profile = await api(`/v1/seekers/${seekerId}/profile`);
+    $("profile-json").value = pretty(profile.profile);
+    $("prefs-json").value = pretty(profile.preferences);
+    $("completeness").textContent = `${profile.completeness.overall}%`;
+    $("profile-output").textContent = pretty(profile);
+    location.hash = "#step-profile";
+    toast("OpenAI interpreted the CV into an editable profile.");
+    return;
+  }
   const interpreted = interpretCvText(text);
   $("profile-json").value = pretty(interpreted.profile);
   $("prefs-json").value = pretty(interpreted.prefs);
@@ -234,14 +290,27 @@ async function buildMasterFiles() {
 
 async function searchJobs() {
   const seekerId = requireSeeker();
-  await api("/v1/discovery/run", {
-    method: "POST",
-    body: JSON.stringify({
-      fixtures_dir: $("fixtures-dir").value.trim() || null,
-      greenhouse_orgs: splitList("greenhouse-orgs"),
-      lever_orgs: splitList("lever-orgs"),
-    }),
-  });
+  const manualUrl = $("manual-url").value.trim();
+  if (manualUrl) {
+    await api("/v1/jobs/manual", {
+      method: "POST",
+      body: JSON.stringify({
+        url: manualUrl,
+        description_text: $("manual-description").value.trim() || null,
+      }),
+    });
+  }
+  const discoveryBody = {
+    fixtures_dir: state.health?.production_mode ? null : $("fixtures-dir").value.trim() || null,
+    greenhouse_orgs: splitList("greenhouse-orgs"),
+    lever_orgs: splitList("lever-orgs"),
+  };
+  if (discoveryBody.fixtures_dir || discoveryBody.greenhouse_orgs.length || discoveryBody.lever_orgs.length) {
+    await api("/v1/discovery/run", {
+      method: "POST",
+      body: JSON.stringify(discoveryBody),
+    });
+  }
   await api(`/v1/seekers/${seekerId}/match/run`, { method: "POST" });
   await refreshMatches();
   location.hash = "#step-search";
@@ -332,6 +401,7 @@ async function viewHandoff() {
 
 async function applySelected() {
   const selected = requireSelected();
+  await api(`/v1/applications/${selected.application_id}/preflight`, { method: "POST" });
   const app = await api(`/v1/applications/${selected.application_id}/run`, { method: "POST" });
   $("timeline-output").textContent = pretty(app);
   await loadTimeline();

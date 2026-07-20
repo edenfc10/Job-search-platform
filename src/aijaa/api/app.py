@@ -21,19 +21,20 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="AIJAA — AI Job Applications Agent", version="0.1.0", lifespan=lifespan)
     static_dir = Path(__file__).with_name("static")
-
     from aijaa.api.routers.applications import router as applications_router
     from aijaa.api.routers.approvals import router as approvals_router
     from aijaa.api.routers.pipeline import router as pipeline_router
     from aijaa.api.routers.seekers import router as seekers_router
+    from aijaa.core.config import get_settings
 
     app.include_router(seekers_router)
     app.include_router(pipeline_router)
     app.include_router(approvals_router)
     app.include_router(applications_router)
-    from aijaa.testkit.mockboard import create_mock_ats
+    if not get_settings().production_mode:
+        from aijaa.testkit.mockboard import create_mock_ats
 
-    app.mount("/mockboard", create_mock_ats(), name="mockboard")
+        app.mount("/mockboard", create_mock_ats(), name="mockboard")
 
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -43,13 +44,21 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     async def healthz():
-        from aijaa.core.config import get_settings
+        from aijaa.core.production import csv_items, production_status
         from aijaa.llm.factory import get_llms
 
+        settings = get_settings()
+        prod = production_status(settings)
+        llm_mode = "unconfigured"
+        if not (settings.production_mode and not prod.production_ready):
+            llm_mode = get_llms().mode
         return {
             "status": "ok",
-            "llm_mode": get_llms().mode,
-            "dry_run": get_settings().dry_run,
+            "llm_mode": llm_mode,
+            "dry_run": settings.dry_run,
+            "configured_greenhouse_orgs": csv_items(settings.greenhouse_orgs),
+            "configured_lever_orgs": csv_items(settings.lever_orgs),
+            **prod.model_dump(),
         }
 
     @app.get("/metrics")
