@@ -50,6 +50,14 @@ async function api(path, options = {}) {
   return body;
 }
 
+async function upload(path, formData) {
+  const res = await fetch(path, { method: "POST", body: formData });
+  const contentType = res.headers.get("content-type") || "";
+  const body = contentType.includes("application/json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(typeof body === "object" ? body.detail || pretty(body) : body);
+  return body;
+}
+
 function setBusy(button, busy) {
   button.disabled = busy;
 }
@@ -468,8 +476,11 @@ function setupDropzone() {
   input.addEventListener("change", async () => {
     const file = input.files?.[0];
     if (!file) return;
-    $("cv-text").value = await file.text();
-    toast(`Loaded ${file.name}.`);
+    try {
+      await loadCvFile(file);
+    } catch (error) {
+      toast(error.message, "error");
+    }
   });
   for (const eventName of ["dragenter", "dragover"]) {
     zone.addEventListener(eventName, (event) => {
@@ -483,6 +494,26 @@ function setupDropzone() {
       zone.classList.remove("drag");
     });
   }
+  zone.addEventListener("drop", async (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+    input.files = event.dataTransfer.files;
+    try {
+      await loadCvFile(file);
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+}
+
+async function loadCvFile(file) {
+  $("cv-file-status").textContent = `Reading ${file.name}…`;
+  const form = new FormData();
+  form.append("file", file);
+  const parsed = await upload("/v1/cv/parse", form);
+  $("cv-text").value = parsed.text;
+  $("cv-file-status").textContent = `${parsed.filename} · ${parsed.characters.toLocaleString()} characters extracted`;
+  toast(`Loaded ${parsed.filename}.`);
 }
 
 function boot() {

@@ -23,10 +23,12 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).with_name("static")
     from aijaa.api.routers.applications import router as applications_router
     from aijaa.api.routers.approvals import router as approvals_router
+    from aijaa.api.routers.cv import router as cv_router
     from aijaa.api.routers.pipeline import router as pipeline_router
     from aijaa.api.routers.seekers import router as seekers_router
     from aijaa.core.config import get_settings
 
+    app.include_router(cv_router)
     app.include_router(seekers_router)
     app.include_router(pipeline_router)
     app.include_router(approvals_router)

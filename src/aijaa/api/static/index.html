@@ -53,14 +53,15 @@
           <div>
             <p class="eyebrow">Step 1</p>
             <h2>Drop CV</h2>
-            <p>Start a new search loop by dropping a text CV, or paste CV content below.</p>
+            <p>Start a new search loop by dropping a CV file, or paste CV content below.</p>
           </div>
           <button class="secondary" id="new-loop-btn" type="button">Start New Loop</button>
         </div>
         <div class="dropzone" id="dropzone">
-          <input id="cv-file" type="file" accept=".txt,.md,.text,.json">
+          <input id="cv-file" type="file" accept=".pdf,.docx,.txt,.md,.text,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
           <strong>Drop CV file here</strong>
-          <span>TXT/MD works best in this local build. Paste text for PDF/DOCX content.</span>
+          <span>PDF, DOCX, TXT, MD, and JSON are supported.</span>
+          <small id="cv-file-status">No file selected.</small>
         </div>
         <label>
           CV text
