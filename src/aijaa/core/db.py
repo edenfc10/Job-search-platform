@@ -40,3 +40,19 @@ def reset_for_tests() -> None:
     _engine = None
     _session_factory = None
     get_settings.cache_clear()
+
+
+async def dispose_for_tests() -> None:
+    """Dispose the cached engine before changing a test database URL.
+
+    Merely dropping the module reference leaves aiosqlite worker threads alive
+    until after pytest closes its event loop, which produces noisy thread
+    exceptions and can hide real teardown failures.
+    """
+    global _engine, _session_factory
+    previous_engine = _engine
+    _engine = None
+    _session_factory = None
+    get_settings.cache_clear()
+    if previous_engine is not None:
+        await previous_engine.dispose()

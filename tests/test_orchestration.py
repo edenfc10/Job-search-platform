@@ -5,6 +5,7 @@ from aijaa.core.config import get_settings
 from aijaa.core.models import ApplicationRecord, utcnow
 from aijaa.orchestration.governor import can_start_application, can_start_browser_task
 from aijaa.orchestration.pipeline import enqueue_approved_match
+from aijaa.orchestration.runner import run_one
 
 
 async def test_task_enqueue_is_idempotent(session):
@@ -81,6 +82,27 @@ async def test_dead_letter_after_failed_task(session):
     task_id, _ = await repo.enqueue_task(session, "unknown", "unknown:1")
     await repo.fail_task(session, task_id, "boom")
     assert await repo.dead_letter_count(session) == 1
+
+
+async def test_delayed_tailor_task_is_safe_after_direct_tailoring(session):
+    app = ApplicationRecord(
+        seeker_id="s1", posting_id="p1", match_id="m1", status="tailored"
+    )
+    await repo.create_application(session, app)
+    task_id, _ = await repo.enqueue_task(
+        session,
+        "run_tailor",
+        f"application:{app.id}:tailor",
+        {"application_id": app.id},
+        app.seeker_id,
+        app.id,
+    )
+
+    assert await run_one() is True
+    tasks = await repo.list_tasks(session)
+    by_id = {task.id: task for task in tasks}
+    assert by_id[task_id].status == "succeeded"
+    assert any(task.task_type == "run_analyze" for task in tasks)
 
 
 async def test_pipeline_status_endpoint(client):

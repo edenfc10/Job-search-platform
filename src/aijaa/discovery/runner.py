@@ -16,7 +16,10 @@ def _fuzzy_key(company: str, title: str, location: str | None) -> str:
 
 
 async def run_discovery(
-    s: AsyncSession, sources: list[JobSource], criteria: SearchCriteria | None = None
+    s: AsyncSession,
+    sources: list[JobSource],
+    criteria: SearchCriteria | None = None,
+    fixture_base_url: str | None = None,
 ) -> dict:
     from aijaa.discovery.normalize import normalize
 
@@ -31,7 +34,7 @@ async def run_discovery(
         raws = await source.fetch(criteria)
         stats["fetched"] += len(raws)
         for raw in raws:
-            posting = normalize(raw, criteria.posted_within_days)
+            posting = normalize(raw, criteria.posted_within_days, fixture_base_url)
             if posting is None:
                 stats["stale_dropped"] += 1
                 continue

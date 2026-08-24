@@ -56,6 +56,7 @@ async def tailor_resume(
         seeker_id=seeker_id,
         kind="tailored",
         language=master.language,
+        profile_version=profile.version,
         posting_id=posting.id,
         ir=tailored_ir.model_dump(),
         ats_score_before=report_before.score,

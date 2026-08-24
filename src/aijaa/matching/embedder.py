@@ -9,7 +9,9 @@ import re
 from typing import Protocol
 
 DIM = 256
-_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.]{1,}")
+# Python's Unicode-aware \w keeps Hebrew and other non-Latin CV/job terms in
+# local retrieval instead of silently discarding them.
+_TOKEN_RE = re.compile(r"[^\W_][\w+#./&-]*", re.UNICODE)
 
 
 class Embedder(Protocol):

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AIJAA Search Loop</title>
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v=20260812-2">
   </head>
   <body>
     <main class="loop-shell">
@@ -95,6 +95,7 @@
           <button class="primary" id="save-profile-btn" type="button">Save Editable Profile</button>
           <button class="secondary" id="build-master-btn" type="button">Build Master CV Files</button>
         </div>
+        <div class="inline-message hidden" id="profile-error" role="alert"></div>
         <pre id="profile-output">No interpreted profile yet.</pre>
       </section>
 
@@ -126,6 +127,20 @@
             <input id="manual-url" placeholder="https://company.com/careers/job">
           </label>
         </div>
+        <div class="source-row">
+          <label>
+            Manual job title
+            <input id="manual-title" placeholder="Regulation Manager">
+          </label>
+          <label>
+            Manual company
+            <input id="manual-company" placeholder="Company name">
+          </label>
+          <label>
+            Manual location
+            <input id="manual-location" placeholder="Tel Aviv / Remote">
+          </label>
+        </div>
         <label>
           Manual job description
           <textarea id="manual-description" rows="5" placeholder="Optional but recommended when the page is hard to parse or gated."></textarea>
@@ -137,6 +152,7 @@
           <button class="primary" id="search-btn" type="button">Search For Jobs</button>
           <button class="secondary" id="refresh-matches-btn" type="button">Refresh Results</button>
         </div>
+        <div class="search-summary hidden" id="search-summary" aria-live="polite"></div>
         <div id="match-list" class="job-list"></div>
       </section>
 
@@ -176,6 +192,6 @@
     </main>
 
     <div id="toast" role="status" aria-live="polite"></div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260812-2"></script>
   </body>
 </html>

@@ -157,6 +157,7 @@ class ResumeDocument(BaseModel):
     seeker_id: str
     kind: Literal["master", "tailored"] = "master"
     language: Literal["en", "he"] = "en"
+    profile_version: int = 0
     posting_id: str | None = None
     ir: dict = {}  # ResumeIR dump (resume/ir.py)
     artifacts: dict[str, str] = {}  # format -> path

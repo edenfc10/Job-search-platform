@@ -59,7 +59,19 @@ _SECTION_QUESTIONS = {
     ),
 }
 
-_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.]{1,}")
+_GENERIC_ROLE_TOKENS = {
+    "assistant",
+    "director",
+    "head",
+    "lead",
+    "manager",
+    "officer",
+    "professional",
+    "senior",
+    "specialist",
+}
+
+_TOKEN_RE = re.compile(r"[^\W_][\w+#./&-]*", re.UNICODE)
 
 
 def _tokens(text: str) -> set[str]:
@@ -170,9 +182,15 @@ class FakeRerankLLM:
         items = []
         for p in postings:
             post_toks = _tokens(p.title + " " + p.description_text)
-            overlap = seeker_toks & post_toks
-            denom = min(max(len(seeker_toks), 1), 20)
-            title_bonus = 25 if _tokens(p.title) & _tokens(" ".join(prefs.target_titles)) else 0
+            meaningful_seeker = seeker_toks - _GENERIC_ROLE_TOKENS
+            meaningful_post = post_toks - _GENERIC_ROLE_TOKENS
+            overlap = meaningful_seeker & meaningful_post
+            denom = min(max(len(meaningful_seeker), 3), 20)
+            title_overlap = (
+                (_tokens(p.title) - _GENERIC_ROLE_TOKENS)
+                & (_tokens(" ".join(prefs.target_titles)) - _GENERIC_ROLE_TOKENS)
+            )
+            title_bonus = 25 if title_overlap else 0
             score = min(100, int(70 * len(overlap) / denom) + title_bonus + 10)
             risks = []
             if p.salary_min is None and p.salary_max is None:

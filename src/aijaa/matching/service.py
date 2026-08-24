@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aijaa.core import repo
 from aijaa.core.config import get_settings
 from aijaa.core.models import ApplicationRecord, MatchResult
+from aijaa.core.profile_quality import candidate_profile_issues
 from aijaa.core.status import ApplicationStatus
 from aijaa.llm.factory import get_llms
 from aijaa.matching.embedder import cosine, get_embedder
@@ -32,6 +33,11 @@ async def run_matching(s: AsyncSession, seeker_id: str) -> dict:
     prefs = await repo.get_preferences(s, seeker_id)
     if profile is None or prefs is None:
         raise ValueError("seeker has no profile/preferences — run intake first")
+    quality_issues = candidate_profile_issues(profile, prefs)
+    if quality_issues:
+        raise ValueError(
+            "profile is not ready for job matching: " + "; ".join(quality_issues)
+        )
 
     warnings = []
     if repo.profile_is_stale(profile, settings.profile_stale_days):
@@ -39,10 +45,8 @@ async def run_matching(s: AsyncSession, seeker_id: str) -> dict:
 
     postings = await repo.list_postings(s)
     already_matched = {m.posting_id for m in await repo.list_matches(s, seeker_id)}
-    candidates = [
-        p for p in postings
-        if p.id not in already_matched and passes_hard_filters(p, prefs)
-    ]
+    unmatched = [p for p in postings if p.id not in already_matched]
+    candidates = [p for p in unmatched if passes_hard_filters(p, prefs)]
 
     embedder = get_embedder()
     query_vec = await embedder.embed(seeker_query_text(profile, prefs))
@@ -91,10 +95,14 @@ async def run_matching(s: AsyncSession, seeker_id: str) -> dict:
         created += 1
 
     stats = {
+        "jobs_considered": len(postings),
+        "already_matched": len(postings) - len(unmatched),
+        "hard_filtered": len(unmatched) - len(candidates),
         "candidates_after_filters": len(candidates),
         "reranked": len(items),
         "matches_created": created,
         "withheld_below_floor": withheld,
+        "match_floor": settings.match_floor,
         "warnings": warnings,
     }
     log.info("matching_run", seeker_id=seeker_id, **stats)

@@ -19,6 +19,8 @@ class RawPosting(BaseModel):
     remote: bool | None = None
     description_html_or_text: str = ""
     posted_at_iso: str | None = None
+    # Local fixtures use a relative age so demo data does not silently expire.
+    posted_days_ago: int | None = None
     salary_raw: str | None = None
 
 

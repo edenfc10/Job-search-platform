@@ -101,6 +101,8 @@ async def test_simple_form_fills_and_stops_at_gate(client, session):
     # DRY_RUN: fills everything, stops at ready_to_submit — never auto-submits
     assert app.status == "ready_to_submit", app.timeline
     assert driver.submit_calls == 0
+    assert driver.fill_calls == 1
+    assert driver.filled_values["full_name"] == "Dana Levi"
     kinds = {e.kind for e in app.evidence}
     assert "review_packet" in kinds and "screenshot" in kinds
     assert app.plan["platform"] == "greenhouse"
@@ -147,8 +149,61 @@ async def test_dry_run_submit_suppressed(client, session):
     await init_db()
     async with session_factory()() as s:
         result = await service.confirm_and_submit(s, app_id, "recruiter@x")
-    assert result.status == "applying"  # returned to applying, submit suppressed
+    assert result.status == "ready_to_submit"  # review remains valid; no refill loop
     assert any(e.kind == "dry_run" for e in result.evidence)
+
+
+async def test_profile_change_invalidates_review_before_submit(client, session):
+    from aijaa.core.db import init_db, session_factory
+
+    seeker_id, match_id = await _approved_application(client, session, "Cloudify")
+    app, app_id = await _run_with_driver(
+        seeker_id, match_id, FixtureDriver("greenhouse_simple.html")
+    )
+    reviewed_version = app.plan["_profile_version"]
+
+    await init_db()
+    async with session_factory()() as s:
+        profile = await repo.latest_profile(s, seeker_id)
+        profile.contact.full_name = "Dana Levi Updated"
+        await repo.save_profile(s, seeker_id, profile)
+        reviewed = await repo.get_application(s, app_id)
+        result = await service.confirm_and_submit(
+            s, app_id, "recruiter@x", driver=FixtureDriver("greenhouse_simple.html")
+        )
+
+    assert result.status == "needs_human"
+    assert result.needs_human_reason == "candidate_profile_changed_since_review"
+    assert reviewed.plan["_profile_version"] == reviewed_version
+
+    async with session_factory()() as s:
+        rebuilt = await service.run_application(
+            s, app_id, driver=FixtureDriver("greenhouse_simple.html")
+        )
+        rebuilt_resume = await repo.get_resume(s, seeker_id, rebuilt.resume_id)
+    assert rebuilt.status == "ready_to_submit"
+    assert rebuilt.plan["_fill"]["values"]["full_name"] == "Dana Levi Updated"
+    assert rebuilt.plan["_profile_version"] == reviewed_version + 1
+    assert rebuilt_resume.profile_version == reviewed_version + 1
+
+
+async def test_placeholder_identity_stops_before_form_fill(client, session):
+    from aijaa.core.db import init_db, session_factory
+
+    seeker_id, match_id = await _approved_application(client, session, "Cloudify")
+    await init_db()
+    async with session_factory()() as s:
+        profile = await repo.latest_profile(s, seeker_id)
+        profile.contact.full_name = "SAMPLE RESUME"
+        profile.contact.email = "mail@email.com"
+        await repo.save_profile(s, seeker_id, profile)
+        app = await repo.get_application_for_match(s, match_id)
+        driver = FixtureDriver("greenhouse_simple.html")
+        result = await service.run_application(s, app.id, driver=driver)
+
+    assert result.status == "needs_human"
+    assert "placeholder" in result.needs_human_reason
+    assert driver.fill_calls == 0
 
 
 async def test_live_submit_confirms(client, session, monkeypatch):
@@ -169,6 +224,78 @@ async def test_live_submit_confirms(client, session, monkeypatch):
     assert result.status == "confirmed"
     assert result.confirmation_ref == "APP-2026-77123"
     assert driver.submit_calls == 1  # exactly one submit
+
+
+async def test_live_submit_rebuilds_state_in_fresh_driver(client, session, monkeypatch):
+    from aijaa.application.executor import confirm_submit
+    from aijaa.core.db import init_db, session_factory
+
+    seeker_id, match_id = await _approved_application(client, session, "Cloudify")
+    prepare_driver = FixtureDriver("greenhouse_simple.html")
+    app, app_id = await _run_with_driver(seeker_id, match_id, prepare_driver)
+    assert app.status == "ready_to_submit"
+
+    monkeypatch.setenv("AIJAA_DRY_RUN", "false")
+    reset_db()
+    await init_db()
+    submit_driver = FixtureDriver("greenhouse_simple.html", submit_result="confirm")
+    async with session_factory()() as s:
+        reviewed = await repo.get_application(s, app_id)
+        result = await confirm_submit(s, reviewed, submit_driver, "recruiter@x", "/tmp/aijaa_fresh")
+
+    assert result.status == "confirmed"
+    assert submit_driver.current_url
+    assert submit_driver.fill_calls >= 1
+    assert submit_driver.submit_calls == 1
+
+
+async def test_changed_form_stops_before_submit(client, session, monkeypatch):
+    from aijaa.application.executor import confirm_submit
+    from aijaa.core.db import init_db, session_factory
+
+    seeker_id, match_id = await _approved_application(client, session, "Cloudify")
+    app, app_id = await _run_with_driver(seeker_id, match_id, FixtureDriver("greenhouse_simple.html"))
+
+    monkeypatch.setenv("AIJAA_DRY_RUN", "false")
+    reset_db()
+    await init_db()
+    changed_driver = FixtureDriver("comp_question.html")
+    async with session_factory()() as s:
+        reviewed = await repo.get_application(s, app_id)
+        result = await confirm_submit(s, reviewed, changed_driver, "recruiter@x", "/tmp/aijaa_changed")
+
+    assert result.status == "needs_human"
+    assert result.needs_human_reason == "form_changed_since_review"
+    assert changed_driver.submit_calls == 0
+
+
+async def test_public_run_returns_controlled_gateway_error_on_navigation_failure(
+    client, session, monkeypatch
+):
+    import httpx
+
+    from aijaa.core.db import init_db, session_factory
+
+    _, match_id = await _approved_application(client, session, "Cloudify")
+    await init_db()
+    async with session_factory()() as s:
+        app = await repo.get_application_for_match(s, match_id)
+
+    visited = []
+
+    class BrokenDriver:
+        async def goto(self, url):
+            visited.append(url)
+            raise httpx.ConnectError("offline", request=httpx.Request("GET", url))
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(service, "get_driver", lambda: BrokenDriver())
+    response = await client.post(f"/v1/applications/{app.id}/run")
+    assert response.status_code == 502
+    assert "Could not reach" in response.json()["detail"]
+    assert visited == ["http://test/mockboard/forms/single"]
 
 
 async def test_ambiguous_submit_never_retries(client, session, monkeypatch):

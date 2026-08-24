@@ -69,6 +69,30 @@ async def test_repo_tenancy_and_idempotency(session):
     assert await repo.create_application(session, dupe) is None  # never double-apply
 
 
+async def test_posting_upsert_refreshes_indexed_columns(session):
+    from datetime import timedelta
+
+    first = JobPosting(
+        source="feed-a", canonical_url="https://x.example/j-refresh", company="Old Co",
+        title="Old title", content_hash="h-old", posted_at=utcnow() - timedelta(days=5),
+    )
+    posting_id, _ = await repo.upsert_posting(session, first)
+    new_posted_at = utcnow()
+    updated = JobPosting(
+        source="feed-b", canonical_url=first.canonical_url, company="New Co",
+        title="New title", content_hash="h-new", posted_at=new_posted_at,
+    )
+    await repo.upsert_posting(session, updated)
+
+    from aijaa.core.tables import PostingRow
+
+    row = await session.get(PostingRow, posting_id)
+    assert (row.source, row.company, row.title, row.content_hash) == (
+        "feed-b", "New Co", "New title", "h-new"
+    )
+    assert row.posted_at.replace(tzinfo=new_posted_at.tzinfo) == new_posted_at
+
+
 async def test_transition_writes_timeline_and_audit(session):
     seeker = await repo.create_seeker(session, "a", utcnow())
     posting = JobPosting(

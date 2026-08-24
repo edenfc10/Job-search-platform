@@ -1,5 +1,38 @@
+import json
+
 from aijaa.discovery.base import RawPosting
 from aijaa.discovery.normalize import canonical_url, normalize, parse_salary
+from aijaa.discovery.sources.fixture import FixtureSource
+
+
+async def test_fake_matcher_does_not_treat_manager_as_domain_fit():
+    from aijaa.core.models import (
+        CareerPreferences,
+        Contact,
+        JobPosting,
+        ProfessionalProfile,
+        ProfileFact,
+        WorkExperience,
+    )
+    from aijaa.llm.fakes import FakeRerankLLM
+
+    profile = ProfessionalProfile(
+        seeker_id="s",
+        contact=Contact(full_name="Real Person", email="real@example.org"),
+        work_history=[WorkExperience(company="A", title="Manager", start="2020")],
+        skills=[ProfileFact(fact_id="s1", text="Excel", kind="skill")],
+    )
+    prefs = CareerPreferences(seeker_id="s", target_titles=["Manager"])
+    posting = JobPosting(
+        source="fixture",
+        canonical_url="https://jobs.example/legal",
+        company="Legal Co",
+        title="Regulation Manager",
+        description_text="Government relations, legal policy and regulatory compliance",
+        content_hash="legal",
+    )
+    [result] = await FakeRerankLLM().rerank(profile, prefs, [posting])
+    assert result.score < 70
 
 
 def test_canonical_url_strips_tracking():
@@ -30,6 +63,93 @@ def test_normalize_infers_missing_date():
     p = normalize(raw, 21)
     assert p is not None and p.posted_at_inferred
     assert p.description_text == "Python role"
+
+
+async def test_fixture_relative_date_does_not_expire(tmp_path):
+    fixture = tmp_path / "jobs.json"
+    fixture.write_text(
+        json.dumps(
+            [
+                {
+                    "source": "fixture",
+                    "url": "https://jobs.example/1",
+                    "company": "A",
+                    "title": "Counsel",
+                    "description_html_or_text": "Legal role",
+                    "posted_days_ago": 2,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    raws = await FixtureSource(str(tmp_path)).fetch(None)
+    assert len(raws) == 1
+    assert normalize(raws[0], posted_within_days=21) is not None
+
+
+async def test_discovery_uses_current_request_port_for_mock_forms(client, session):
+    from tests.conftest import FIXTURES_DIR
+
+    from aijaa.core import repo
+
+    response = await client.post("/v1/discovery/run", json={"fixtures_dir": FIXTURES_DIR})
+    assert response.status_code == 200, response.text
+    postings = await repo.list_postings(session)
+    assert postings
+    assert all(posting.apply_url.startswith("http://test/mockboard/forms/") for posting in postings)
+
+
+async def test_legal_cv_surfaces_legal_fixture(client):
+    cv = """Daniel Cohen
+Lawyer, Tel Aviv, Israel
+daniel@example.com
+SKILLS
+Government Relations
+Regulation
+Legal Consulting
+Litigation
+Legislation
+Public Policy
+Stakeholder Management
+Compliance
+LANGUAGES
+Hebrew
+English
+PROFILE
+Experienced lawyer targeting a Regulation and Government Relations Manager role.
+EMPLOYMENT HISTORY
+Regulation Manager, Trade Association
+2019 — Present
+• Represented clients before government authorities and Knesset committees
+EDUCATION
+2010 - 2014 | LLB Bachelor of Laws, Reichman University
+"""
+    interpreted = (await client.post("/v1/cv/interpret", json={"text": cv})).json()
+    seeker = await client.post(
+        "/v1/seekers",
+        json={"external_ref": "legal-e2e", "consent_recorded_at": "2026-08-11T00:00:00Z"},
+    )
+    seeker_id = seeker.json()["seeker_id"]
+    saved = await client.post(
+        f"/v1/seekers/{seeker_id}/intake/turns",
+        json={
+            "profile_patch": interpreted["profile_patch"],
+            "preferences_patch": interpreted["preferences_patch"],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    discovered = await client.post(
+        "/v1/discovery/run", json={"fixtures_dir": "fixtures/postings"}
+    )
+    assert discovered.status_code == 200, discovered.text
+    assert discovered.json()["stale_dropped"] == 1
+
+    matched = await client.post(f"/v1/seekers/{seeker_id}/match/run")
+    assert matched.status_code == 200, matched.text
+    assert matched.json()["matches_created"] >= 1
+    results = (await client.get(f"/v1/seekers/{seeker_id}/matches")).json()
+    assert "Public Affairs Group" in {item["posting"]["company"] for item in results}
 
 
 async def test_full_mvp_flow(client):

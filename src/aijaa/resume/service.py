@@ -35,7 +35,13 @@ async def build_master_resume(
     if profile is None:
         raise ValueError("no profile for seeker")
     ir = await write_master_ir(profile, language)
-    doc = ResumeDocument(seeker_id=seeker_id, kind="master", language=language, ir=ir.model_dump())  # type: ignore[arg-type]
+    doc = ResumeDocument(
+        seeker_id=seeker_id,
+        kind="master",
+        language=language,
+        profile_version=profile.version,
+        ir=ir.model_dump(),  # type: ignore[arg-type]
+    )
     doc.artifacts = render_artifacts(ir, seeker_id, f"master_{language}_{doc.id[:8]}")
     await repo.save_resume(s, doc)
     await repo.audit(s, seeker_id, "resume", doc.id, "master_resume_built", "system",

@@ -33,6 +33,16 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_router)
     app.include_router(approvals_router)
     app.include_router(applications_router)
+
+    @app.middleware("http")
+    async def disable_console_cache(request, call_next):
+        """The local console changes frequently while the API is running with
+        reload. Do not let a stale app.js keep calling an obsolete workflow."""
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
     if not get_settings().production_mode:
         from aijaa.testkit.mockboard import create_mock_ats
 

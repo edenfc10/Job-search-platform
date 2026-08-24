@@ -1,8 +1,11 @@
 const state = {
-  seekerId: "",
+  seekerId: sessionStorage.getItem("aijaa.seekerId") || "",
+  selectedMatchId: sessionStorage.getItem("aijaa.selectedMatchId") || "",
   selected: null,
   matches: [],
   health: null,
+  searchStats: null,
+  profileIssues: [],
 };
 
 const sampleCv = `Dana Levi
@@ -64,7 +67,66 @@ function setBusy(button, busy) {
 
 function setSeeker(id) {
   state.seekerId = id;
+  if (id) sessionStorage.setItem("aijaa.seekerId", id);
+  else sessionStorage.removeItem("aijaa.seekerId");
   $("active-seeker").textContent = id ? `${id.slice(0, 8)}…` : "None";
+}
+
+function setSelected(match) {
+  state.selected = match || null;
+  state.selectedMatchId = match?.match_id || "";
+  if (state.selectedMatchId) sessionStorage.setItem("aijaa.selectedMatchId", state.selectedMatchId);
+  else sessionStorage.removeItem("aijaa.selectedMatchId");
+  $("selected-job").textContent = match?.posting?.company || "None";
+  $("selected-card").textContent = match ? pretty(match) : "Select a job from the search results.";
+  updateActionButtons();
+}
+
+function profileProblems(profile, preferences) {
+  const problems = [];
+  const name = (profile?.contact?.full_name || "").trim().toLowerCase();
+  const email = (profile?.contact?.email || "").trim().toLowerCase();
+  const placeholderNames = new Set(["cv", "resume", "sample resume", "curriculum vitae"]);
+  const placeholderEmails = new Set(["mail@email.com", "email@example.com"]);
+  if (!name) problems.push("candidate full name");
+  else if (placeholderNames.has(name)) problems.push("a real candidate name (not a CV heading)");
+  if (!email) problems.push("candidate email");
+  else if (placeholderEmails.has(email)) problems.push("a real candidate email");
+  if (!profile?.work_history?.length) problems.push("at least one work-history entry");
+  if (!profile?.skills?.length) problems.push("at least one verified skill");
+  if (!preferences?.target_titles?.length) problems.push("at least one target title");
+  return problems;
+}
+
+function showProfileProblems(problems) {
+  state.profileIssues = problems;
+  const box = $("profile-error");
+  if (problems.length) {
+    box.textContent = `Review required: ${problems.join(", ")}.`;
+    box.classList.remove("hidden");
+    box.classList.add("error");
+  } else {
+    box.classList.add("hidden");
+    box.classList.remove("error");
+  }
+  updateActionButtons();
+}
+
+function updateActionButtons() {
+  const selected = state.selected;
+  const hasSelection = Boolean(selected);
+  const approved = selected?.status === "approved";
+  const appStatus = selected?.application_status || "";
+  const hasApplication = Boolean(selected?.application_id);
+  const profileReady = state.profileIssues.length === 0;
+  $("approve-btn").disabled = !hasSelection || approved || !profileReady;
+  $("tailor-btn").disabled = !hasSelection || !profileReady;
+  $("handoff-btn").disabled = !hasSelection || !approved;
+  $("apply-btn").disabled = !hasApplication || !approved || !profileReady || ["confirmed", "failed"].includes(appStatus);
+  $("timeline-btn").disabled = !hasApplication;
+  $("submit-btn").disabled = !hasApplication || appStatus !== "ready_to_submit" || !profileReady;
+  $("approve-btn").textContent = approved ? "Job Approved" : "Approve Selected Job";
+  $("apply-btn").textContent = appStatus === "ready_to_submit" ? "Rebuild Review" : "Fill Application";
 }
 
 function requireSeeker() {
@@ -74,7 +136,15 @@ function requireSeeker() {
 
 function parseJson(id) {
   const raw = $(id).value.trim();
-  return raw ? JSON.parse(raw) : {};
+  const field = $(id);
+  try {
+    const value = raw ? JSON.parse(raw) : {};
+    field.classList.remove("field-error");
+    return value;
+  } catch (error) {
+    field.classList.add("field-error");
+    throw new Error(`${id === "profile-json" ? "Candidate facts" : "Search preferences"} contains invalid JSON: ${error.message}`);
+  }
 }
 
 async function refreshHealth() {
@@ -207,23 +277,35 @@ function inferYear(line) {
 }
 
 async function startNewLoop() {
-  state.selected = null;
+  setSelected(null);
   state.matches = [];
+  state.searchStats = null;
+  state.profileIssues = [];
   setSeeker("");
   $("selected-job").textContent = "None";
   $("match-count").textContent = "0";
   $("completeness").textContent = "0%";
   $("selected-card").textContent = "Select a job from the search results.";
   $("match-list").innerHTML = "";
+  $("search-summary").classList.add("hidden");
+  $("search-summary").textContent = "";
+  $("profile-error").classList.add("hidden");
+  $("cv-text").value = "";
+  $("cv-file").value = "";
+  $("cv-file-status").textContent = "No file selected.";
+  $("profile-json").value = "";
+  $("prefs-json").value = "";
   $("profile-output").textContent = "No interpreted profile yet.";
   $("tailor-output").textContent = "No tailored packet yet.";
   $("timeline-output").textContent = "No application run yet.";
+  updateActionButtons();
   toast("New search loop ready.");
 }
 
 async function interpretCv() {
   const text = $("cv-text").value.trim();
   if (!text) throw new Error("Drop or paste a CV first.");
+  if (!state.health) throw new Error("The API is still connecting. Try again in a moment.");
   if (state.health?.production_mode) {
     let seekerId = state.seekerId;
     if (!seekerId) {
@@ -250,15 +332,31 @@ async function interpretCv() {
     toast("OpenAI interpreted the CV into an editable profile.");
     return;
   }
-  const interpreted = interpretCvText(text);
-  $("profile-json").value = pretty(interpreted.profile);
-  $("prefs-json").value = pretty(interpreted.prefs);
-  $("profile-output").textContent = "AI-interpreted draft created. Review and edit before saving.";
+  const interpreted = await api("/v1/cv/interpret", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+  $("profile-json").value = pretty(interpreted.profile_patch);
+  $("prefs-json").value = pretty(interpreted.preferences_patch);
+  const warnings = interpreted.warnings || [];
+  $("profile-output").textContent = warnings.length
+    ? `Draft created. Review before saving.\n\nWarnings:\n- ${warnings.join("\n- ")}`
+    : "Draft created. Review and edit before saving.";
   location.hash = "#step-profile";
-  toast("CV interpreted into editable profile.");
+  toast("CV interpreted into an editable profile draft.");
 }
 
 async function saveProfile() {
+  const errorBox = $("profile-error");
+  errorBox.classList.add("hidden");
+  errorBox.classList.remove("error");
+  const profilePatch = parseJson("profile-json");
+  const preferencesPatch = parseJson("prefs-json");
+  const missing = profileProblems(profilePatch, preferencesPatch);
+  if (missing.length) {
+    showProfileProblems(missing);
+    throw new Error(errorBox.textContent);
+  }
   let seekerId = state.seekerId;
   if (!seekerId) {
     const created = await api("/v1/seekers", {
@@ -272,12 +370,13 @@ async function saveProfile() {
     method: "POST",
     body: JSON.stringify({
       free_text: $("cv-text").value,
-      profile_patch: parseJson("profile-json"),
-      preferences_patch: parseJson("prefs-json"),
+      profile_patch: profilePatch,
+      preferences_patch: preferencesPatch,
     }),
   });
   $("completeness").textContent = `${data.overall_completeness}%`;
   $("profile-output").textContent = pretty(data);
+  showProfileProblems([]);
   toast("Editable profile saved.");
 }
 
@@ -298,31 +397,75 @@ async function buildMasterFiles() {
 
 async function searchJobs() {
   const seekerId = requireSeeker();
+  if (!state.health) throw new Error("The API is still connecting. Try again in a moment.");
   const manualUrl = $("manual-url").value.trim();
+  const fixtureDir = state.health.production_mode ? "" : $("fixtures-dir").value.trim();
+  const greenhouseOrgs = splitList("greenhouse-orgs");
+  const leverOrgs = splitList("lever-orgs");
+  if (!fixtureDir && !greenhouseOrgs.length && !leverOrgs.length && !manualUrl) {
+    throw new Error("Configure at least one job source: fixture, Greenhouse, Lever, or a manual job URL.");
+  }
   if (manualUrl) {
     await api("/v1/jobs/manual", {
       method: "POST",
       body: JSON.stringify({
         url: manualUrl,
+        title: $("manual-title").value.trim() || null,
+        company: $("manual-company").value.trim() || null,
+        location: $("manual-location").value.trim() || null,
         description_text: $("manual-description").value.trim() || null,
       }),
     });
   }
   const discoveryBody = {
-    fixtures_dir: state.health?.production_mode ? null : $("fixtures-dir").value.trim() || null,
-    greenhouse_orgs: splitList("greenhouse-orgs"),
-    lever_orgs: splitList("lever-orgs"),
+    fixtures_dir: fixtureDir || null,
+    greenhouse_orgs: greenhouseOrgs,
+    lever_orgs: leverOrgs,
   };
+  let discoveryStats = null;
   if (discoveryBody.fixtures_dir || discoveryBody.greenhouse_orgs.length || discoveryBody.lever_orgs.length) {
-    await api("/v1/discovery/run", {
+    discoveryStats = await api("/v1/discovery/run", {
       method: "POST",
       body: JSON.stringify(discoveryBody),
     });
   }
-  await api(`/v1/seekers/${seekerId}/match/run`, { method: "POST" });
+  const matchingStats = await api(`/v1/seekers/${seekerId}/match/run`, { method: "POST" });
+  state.searchStats = { discovery: discoveryStats, matching: matchingStats };
+  renderSearchSummary();
   await refreshMatches();
   location.hash = "#step-search";
   toast("Search complete.");
+}
+
+function renderSearchSummary() {
+  const host = $("search-summary");
+  const discovery = state.searchStats?.discovery;
+  const matching = state.searchStats?.matching;
+  if (!matching) {
+    host.classList.add("hidden");
+    return;
+  }
+  const pieces = [];
+  if (discovery) {
+    pieces.push(`${discovery.fetched} fetched`);
+    pieces.push(`${discovery.stale_dropped} stale`);
+    pieces.push(`${discovery.created} new`);
+  }
+  pieces.push(`${matching.jobs_considered ?? matching.candidates_after_filters} considered`);
+  pieces.push(`${matching.hard_filtered ?? 0} filtered`);
+  pieces.push(`${matching.candidates_after_filters} eligible`);
+  pieces.push(`${matching.matches_created} surfaced`);
+  pieces.push(`${matching.withheld_below_floor} below score ${matching.match_floor ?? 70}`);
+  let explanation = "Search completed.";
+  if (discovery?.fetched && discovery.stale_dropped === discovery.fetched) {
+    explanation = "Jobs were found, but all were older than the configured freshness window.";
+  } else if (!matching.candidates_after_filters) {
+    explanation = "No jobs remained after freshness, location, salary, and dealbreaker filters.";
+  } else if (!matching.matches_created && matching.withheld_below_floor) {
+    explanation = `Jobs were evaluated, but every score was below the minimum match score of ${matching.match_floor ?? 70}.`;
+  }
+  host.innerHTML = `<strong>${escapeHtml(explanation)}</strong><br>${escapeHtml(pieces.join(" · "))}`;
+  host.classList.remove("hidden");
 }
 
 function splitList(id) {
@@ -333,13 +476,24 @@ async function refreshMatches() {
   const seekerId = requireSeeker();
   state.matches = await api(`/v1/seekers/${seekerId}/matches`);
   $("match-count").textContent = String(state.matches.length);
+  const remembered = state.matches.find((match) => match.match_id === state.selectedMatchId);
+  if (remembered) setSelected(remembered);
+  else if (state.selectedMatchId) setSelected(null);
   renderMatches();
+  updateActionButtons();
+}
+
+async function refreshSelected(matchId) {
+  await refreshMatches();
+  setSelected(state.matches.find((match) => match.match_id === matchId) || null);
+  renderMatches();
+  return state.selected;
 }
 
 function renderMatches() {
   const host = $("match-list");
   if (!state.matches.length) {
-    host.innerHTML = "<p>No surfaced jobs yet.</p>";
+    host.innerHTML = `<p>${state.searchStats ? "No jobs passed the match threshold. See the search summary above." : "No search has been completed yet."}</p>`;
     return;
   }
   host.innerHTML = "";
@@ -369,10 +523,9 @@ function renderMatches() {
 }
 
 function selectMatch(matchId) {
-  state.selected = state.matches.find((match) => match.match_id === matchId);
-  if (!state.selected) throw new Error("Could not select job.");
-  $("selected-job").textContent = `${state.selected.posting.company}`;
-  $("selected-card").textContent = pretty(state.selected);
+  const selected = state.matches.find((match) => match.match_id === matchId);
+  if (!selected) throw new Error("Could not select job.");
+  setSelected(selected);
   renderMatches();
   location.hash = "#step-tailor";
 }
@@ -385,9 +538,7 @@ async function approveSelected() {
       body: JSON.stringify({ decision: "approved", decided_by: "candidate-loop" }),
     });
   }
-  await refreshMatches();
-  state.selected = state.matches.find((match) => match.match_id === selected.match_id);
-  $("selected-card").textContent = pretty(state.selected);
+  await refreshSelected(selected.match_id);
   toast("Selected job approved.");
 }
 
@@ -397,6 +548,7 @@ async function tailorSelected() {
   const current = state.matches.find((match) => match.match_id === selected.match_id) || selected;
   const app = await api(`/v1/applications/${current.application_id}/tailor`, { method: "POST" });
   $("tailor-output").textContent = pretty(app);
+  await refreshSelected(selected.match_id);
   toast("Tailored CV files created.");
 }
 
@@ -409,12 +561,20 @@ async function viewHandoff() {
 
 async function applySelected() {
   const selected = requireSelected();
-  await api(`/v1/applications/${selected.application_id}/preflight`, { method: "POST" });
-  const app = await api(`/v1/applications/${selected.application_id}/run`, { method: "POST" });
-  $("timeline-output").textContent = pretty(app);
-  await loadTimeline();
-  location.hash = "#step-apply";
-  toast(`Application status: ${app.status}.`);
+  try {
+    // /run already performs tailor (if needed), analysis, and guarded filling.
+    // Calling /preflight first duplicated navigation and failed when local ports changed.
+    const app = await api(`/v1/applications/${selected.application_id}/run`, { method: "POST" });
+    $("timeline-output").textContent = pretty(app);
+    await refreshSelected(selected.match_id);
+    await loadTimeline();
+    location.hash = "#step-apply";
+    toast(`Application status: ${app.status}.`);
+  } catch (error) {
+    $("timeline-output").textContent = `Application preparation failed:\n${error.message}`;
+    location.hash = "#step-apply";
+    throw error;
+  }
 }
 
 async function loadTimeline() {
@@ -425,12 +585,40 @@ async function loadTimeline() {
 
 async function confirmSubmit() {
   const selected = requireSelected();
+  const label = `${selected.posting?.title || "job"} at ${selected.posting?.company || "company"}`;
+  const dryRunNote = state.health?.dry_run ? "\n\nDRY_RUN is on: no external submit click will occur." : "";
+  if (!window.confirm(`Confirm the reviewed application for ${label}?${dryRunNote}`)) return;
   const data = await api(`/v1/applications/${selected.application_id}/confirm-submit`, {
     method: "POST",
     body: JSON.stringify({ confirmed_by: "candidate-loop" }),
   });
-  $("timeline-output").textContent = pretty(data);
-  toast(`Submit gate handled: ${data.status}.`);
+  await refreshSelected(selected.match_id);
+  await loadTimeline();
+  if (state.health?.dry_run) {
+    toast(`Dry run recorded. Nothing was submitted; status remains ${data.status}.`);
+  } else {
+    toast(`Submit gate handled: ${data.status}.`);
+  }
+}
+
+async function restoreSession() {
+  if (!state.seekerId) {
+    updateActionButtons();
+    return;
+  }
+  try {
+    const data = await api(`/v1/seekers/${state.seekerId}/profile`);
+    $("profile-json").value = pretty(data.profile);
+    $("prefs-json").value = pretty(data.preferences);
+    $("completeness").textContent = `${data.completeness?.overall ?? 0}%`;
+    $("profile-output").textContent = "Saved profile restored from the API.";
+    showProfileProblems(profileProblems(data.profile, data.preferences));
+    await refreshMatches();
+  } catch (error) {
+    setSelected(null);
+    setSeeker("");
+    toast(`Saved session could not be restored: ${error.message}`, "error");
+  }
 }
 
 function requireSelected() {
@@ -443,6 +631,7 @@ function renderTimeline(events) {
     <div class="timeline-row">
       <div><strong>${escapeHtml(event.kind)}</strong><span>${escapeHtml(event.ts || "")}</span></div>
       <p>${escapeHtml(event.event || event.to || event.evidence_kind || event.reason || "")}</p>
+      ${event.value ? `<pre>${escapeHtml(event.value)}</pre>` : ""}
     </div>
   `).join("");
 }
@@ -466,6 +655,7 @@ function attach(id, fn) {
       toast(error.message, "error");
     } finally {
       setBusy(event.currentTarget, false);
+      updateActionButtons();
     }
   });
 }
@@ -517,6 +707,7 @@ async function loadCvFile(file) {
 }
 
 function boot() {
+  setSeeker(state.seekerId);
   setupDropzone();
   attach("new-loop-btn", startNewLoop);
   attach("sample-btn", () => {
@@ -538,7 +729,10 @@ function boot() {
     const button = event.target.closest("button[data-action='select']");
     if (button) selectMatch(button.dataset.id);
   });
-  refreshHealth().catch((error) => toast(error.message, "error"));
+  updateActionButtons();
+  refreshHealth()
+    .then(restoreSession)
+    .catch((error) => toast(error.message, "error"));
 }
 
 boot();

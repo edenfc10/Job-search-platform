@@ -1,3 +1,28 @@
+# AIJAA — Current Checkpoint
+
+**Date:** 2026-08-24 · **Status:** local MVP stabilized; production foundation not started.
+
+Current verification target:
+
+```bash
+.venv-run/bin/ruff check src tests
+node --check src/aijaa/api/static/app.js
+.venv-run/bin/python -m pytest -q
+```
+
+Expected result: 74 tests pass. The local UI now restores the active seeker and
+selected match, prevents stale static assets, blocks placeholder candidate data,
+invalidates reviews after profile changes, rebuilds resume artifacts by profile
+version, and keeps dry-run submission non-destructive. The DB-backed runner still
+is not started by FastAPI, so PostgreSQL/Redis/arq, authentication/tenant isolation,
+durable submission attempts, hardened storage/network inputs, CI/CD, and AWS
+infrastructure remain production blockers.
+
+The two checkpoints below are retained as historical build records; their test
+counts and "next phase" wording describe the repository at those dates.
+
+---
+
 # AIJAA — QA Checkpoint #1
 
 **Date:** 2026-07-16 · **Status:** MVP slice + full application engine built and verified (36 tests green, zero API usage). This is the pre-determined checkpoint promised before finishing development. Please run the checks below and confirm before I proceed to the final phase (orchestration-lite, full audit/metrics surface, and the mock-board E2E + eval gates).

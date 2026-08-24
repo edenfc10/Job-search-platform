@@ -22,12 +22,20 @@ class FixtureDriver:
         self.html = ""
         self.snapshots: list[str] = []
         self.submit_calls = 0
+        self.fill_calls = 0
+        self.filled_values: dict = {}
+        self.filled_files: dict = {}
 
     async def goto(self, url: str) -> str:
         self.current_url = url
         with open(os.path.join(FORMS_DIR, self._form_file), encoding="utf-8") as f:
             self.html = f.read()
         return self.html
+
+    async def fill_form(self, values, files) -> None:
+        self.fill_calls += 1
+        self.filled_values = dict(values)
+        self.filled_files = dict(files)
 
     async def submit_form(self, action, method, values, files) -> str:
         self.submit_calls += 1

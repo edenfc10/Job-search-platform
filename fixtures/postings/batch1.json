@@ -7,7 +7,7 @@
     "location": "Tel Aviv, Israel",
     "remote": true,
     "description_html_or_text": "<p>We are hiring a Senior Backend Engineer. Required: Python, FastAPI, PostgreSQL, Kubernetes, Docker, AWS. You will build microservices, improve API latency, and lead engineers. Redis experience is a plus. Salary ₪32,000 - ₪42,000 monthly. Hybrid from Tel Aviv or remote.</p>",
-    "posted_at_iso": "2026-07-10T09:00:00+00:00"
+    "posted_days_ago": 6
   },
   {
     "source": "fixture",
@@ -17,7 +17,7 @@
     "location": "Remote",
     "remote": true,
     "description_html_or_text": "Backend Engineer needed. Must have Python and PostgreSQL. Nice to have: Kubernetes, AWS, Docker, Redis, ETL pipelines, microservices at scale. Senior engineers welcome.",
-    "posted_at_iso": "2026-07-14T12:00:00+00:00"
+    "posted_days_ago": 2
   },
   {
     "source": "fixture",
@@ -26,7 +26,7 @@
     "title": "Registered Nurse",
     "location": "Haifa, Israel",
     "description_html_or_text": "Registered Nurse for the cardiology department. Nursing license required. Shift work. Patient care experience essential.",
-    "posted_at_iso": "2026-07-12T08:00:00+00:00"
+    "posted_days_ago": 4
   },
   {
     "source": "fixture",
@@ -35,7 +35,7 @@
     "title": "Python Developer",
     "location": "Tel Aviv",
     "description_html_or_text": "Python developer with PostgreSQL and AWS. Docker, Kubernetes and FastAPI experience required. Microservices architecture.",
-    "posted_at_iso": "2025-11-01T08:00:00+00:00"
+    "posted_days_ago": 200
   },
   {
     "source": "fixture",
@@ -44,7 +44,7 @@
     "title": "Senior Backend Engineer",
     "location": "Tel Aviv",
     "description_html_or_text": "Senior Backend Engineer for our online gambling platform. Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, Redis, microservices.",
-    "posted_at_iso": "2026-07-13T08:00:00+00:00"
+    "posted_days_ago": 3
   },
   {
     "source": "fixture",
@@ -54,6 +54,16 @@
     "location": "Tel Aviv, Israel",
     "remote": true,
     "description_html_or_text": "Duplicate listing of the Cloudify role via another feed. Python, FastAPI, PostgreSQL, Kubernetes.",
-    "posted_at_iso": "2026-07-10T09:00:00+00:00"
+    "posted_days_ago": 6
+  },
+  {
+    "source": "fixture",
+    "url": "https://boards.example.com/publicaffairs/regulation-manager",
+    "company": "Public Affairs Group",
+    "title": "Regulation and Government Relations Manager",
+    "location": "Tel Aviv, Israel",
+    "remote": false,
+    "description_html_or_text": "We are hiring a Regulation and Government Relations Manager. Must have legal or regulatory experience, familiarity with government authorities, legislation, public policy and Knesset committees. Responsibilities include stakeholder management, preparing legal opinions, supporting compliance processes and representing industry interests. Lawyer qualification and Hebrew and English proficiency are preferred.",
+    "posted_days_ago": 3
   }
 ]

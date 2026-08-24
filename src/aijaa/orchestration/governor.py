@@ -15,11 +15,16 @@ def domain_for_url(url: str) -> str:
     return host.split(":")[0]
 
 
-async def can_start_browser_task(s: AsyncSession, seeker_id: str) -> tuple[bool, str]:
+async def can_start_browser_task(
+    s: AsyncSession, seeker_id: str, exclude_task_id: str | None = None
+) -> tuple[bool, str]:
+    """`exclude_task_id` is the id of the task making this check — it is
+    already marked 'running' by the time this runs, so it must be excluded
+    from its own active-count check or every task blocks on itself."""
     settings = get_settings()
-    if await repo.active_browser_tasks(s) >= settings.browser_pool_max:
+    if await repo.active_browser_tasks(s, exclude_task_id=exclude_task_id) >= settings.browser_pool_max:
         return False, "browser_pool_full"
-    if await repo.active_browser_tasks(s, seeker_id) >= 1:
+    if await repo.active_browser_tasks(s, seeker_id, exclude_task_id=exclude_task_id) >= 1:
         return False, "seeker_browser_busy"
     return True, ""
 

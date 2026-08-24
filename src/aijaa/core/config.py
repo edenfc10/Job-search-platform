@@ -13,8 +13,11 @@ class Settings(BaseSettings):
 
     llm_provider: str = "fake"  # fake | openai | anthropic
     openai_api_key: str = ""
-    openai_model_fast: str = "gpt-5.6-terra"
-    openai_model_smart: str = "gpt-5.6"
+    # NOTE: verify against OpenAI's current model catalog before enabling —
+    # unlike the Claude model strings above, these aren't pinned against a
+    # live-verified reference and should be reconfirmed at deploy time.
+    openai_model_fast: str = "gpt-4.1-mini"
+    openai_model_smart: str = "gpt-4.1"
 
     anthropic_api_key: str = ""
     # When true (default), all LLM protocols use deterministic fakes — no API usage.

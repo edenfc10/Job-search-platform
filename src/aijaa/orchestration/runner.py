@@ -76,20 +76,22 @@ async def _execute_task(s, task) -> None:
 
     if task.task_type == "run_tailor":
         app = await _load_app(s, payload["application_id"])
-        app = await application_service.tailor_for_application(s, app)
-        await repo.enqueue_task(
-            s,
-            "run_analyze",
-            f"application:{app.id}:analyze",
-            {"application_id": app.id},
-            app.seeker_id,
-            app.id,
-        )
+        if app.status == "approved":
+            app = await application_service.tailor_for_application(s, app)
+        if app.status == "tailored":
+            await repo.enqueue_task(
+                s,
+                "run_analyze",
+                f"application:{app.id}:analyze",
+                {"application_id": app.id},
+                app.seeker_id,
+                app.id,
+            )
         return
 
     if task.task_type in {"run_analyze", "run_apply", "resume_after_human"}:
         app = await _load_app(s, payload["application_id"])
-        ok, reason = await can_start_browser_task(s, app.seeker_id)
+        ok, reason = await can_start_browser_task(s, app.seeker_id, exclude_task_id=task.id)
         if not ok:
             raise _RetryLater(reason)
         posting = await repo.get_posting(s, app.posting_id)

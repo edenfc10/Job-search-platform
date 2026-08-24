@@ -6,9 +6,20 @@ jobs, waits for per-job human approval, tailors the resume, fills applications,
 stops at a pre-submit human gate, and validates receipts after an explicit submit
 confirmation.
 
-The reference build is intentionally lightweight: SQLite, deterministic fake LLMs
-by default, and an in-process DB-backed task runner. The production target remains
+The reference build is intentionally lightweight: SQLite and deterministic fake
+LLMs by default. It contains a DB-backed task model and runner, but the FastAPI
+lifespan does not start that runner yet; the local console currently uses the
+direct synchronous compatibility endpoints. The production target remains
 Postgres/Redis/arq as documented in `../AIJAA_Prompt_Chain.md`.
+
+## Current checkpoint
+
+As of 2026-08-24, the local MVP has 74 automated tests and a guarded end-to-end
+dry-run path. It is not production-ready: authentication, organization isolation,
+PostgreSQL/Alembic, Redis/arq workers, durable submit idempotency, private object
+storage, hardened uploads/manual URLs, deployment infrastructure, and CI/CD are
+still required. `QA_CHECKPOINT.md` preserves the earlier build history and records
+the current checkpoint at its top.
 
 ## Architecture
 
@@ -26,7 +37,7 @@ no retry after an ambiguous submit click, and match scores below 70 are withheld
 ## Runbook
 
 ```bash
-cd /Users/amitbakshi/AIJAA/aijaa
+cd /path/to/AIJAA/aijaa
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 just ci
@@ -59,10 +70,10 @@ Required settings:
 - at least one real source: `AIJAA_ENABLE_MANUAL_URLS=true`,
   `AIJAA_GREENHOUSE_ORGS`, `AIJAA_LEVER_ORGS`, or a permissioned partner feed
 
-Defaults:
+Defaults (verify against OpenAI's current model catalog before going live):
 
-- `AIJAA_OPENAI_MODEL_FAST=gpt-5.6-terra`
-- `AIJAA_OPENAI_MODEL_SMART=gpt-5.6`
+- `AIJAA_OPENAI_MODEL_FAST=gpt-4.1-mini`
+- `AIJAA_OPENAI_MODEL_SMART=gpt-4.1`
 
 Keep `AIJAA_DRY_RUN=true` while using real models unless the production
 submit-readiness checklist below is complete.
@@ -118,8 +129,10 @@ not scrape them or bypass access controls.
 9. Submit only from `ready_to_submit` using
    `POST /v1/applications/{id}/confirm-submit`.
 
-The local queue is additive: direct run endpoints still exist for QA, while
-approval and human-input events enqueue idempotent tasks for the in-process runner.
+The local queue is additive: approval events create idempotent task rows, while
+direct run endpoints execute synchronously for QA and the current web console.
+Until a worker process is wired in, queued rows are operational records rather
+than proof that background work is being drained.
 
 ## Governance
 

@@ -3,7 +3,7 @@ import re
 from datetime import timedelta
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,9 @@ class DiscoveryRequest(BaseModel):
 
 
 @router.post("/discovery/run")
-async def discovery_run(body: DiscoveryRequest, s: AsyncSession = Depends(get_session)):
+async def discovery_run(
+    body: DiscoveryRequest, request: Request, s: AsyncSession = Depends(get_session)
+):
     settings = get_settings()
     sources = []
     if body.fixtures_dir:
@@ -54,7 +56,7 @@ async def discovery_run(body: DiscoveryRequest, s: AsyncSession = Depends(get_se
     criteria = None
     if body.posted_within_days:
         criteria = SearchCriteria(posted_within_days=body.posted_within_days)
-    return await run_discovery(s, sources, criteria)
+    return await run_discovery(s, sources, criteria, fixture_base_url=str(request.base_url))
 
 
 class ManualJobRequest(BaseModel):

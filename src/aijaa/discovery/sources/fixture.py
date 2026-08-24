@@ -3,6 +3,7 @@ and QA runs — no network access."""
 
 import json
 import os
+from datetime import UTC, datetime, timedelta
 
 from aijaa.discovery.base import RawPosting, SearchCriteria
 
@@ -23,5 +24,12 @@ class FixtureSource:
             with open(os.path.join(self.directory, fname), encoding="utf-8") as f:
                 data = json.load(f)
             items = data if isinstance(data, list) else [data]
-            out.extend(RawPosting.model_validate(item) for item in items)
+            for item in items:
+                payload = dict(item)
+                days_ago = payload.get("posted_days_ago")
+                if days_ago is not None:
+                    payload["posted_at_iso"] = (
+                        datetime.now(UTC) - timedelta(days=max(0, int(days_ago)))
+                    ).isoformat()
+                out.append(RawPosting.model_validate(payload))
         return out

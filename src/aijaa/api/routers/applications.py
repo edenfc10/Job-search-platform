@@ -1,7 +1,8 @@
 """Application engine endpoints (Phase B). Present from the MVP build so the
 API surface is stable; endpoints 409 until the analyzer/executor phases run."""
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,9 +16,9 @@ from aijaa.application.service import (
     tailor_for_application,
 )
 from aijaa.core import repo
+from aijaa.core.config import get_settings
 from aijaa.core.db import get_session
 from aijaa.llm.usage import current_seeker_id
-from aijaa.orchestration.pipeline import enqueue_human_resume
 
 router = APIRouter(prefix="/v1/applications", tags=["applications"])
 
@@ -30,15 +31,43 @@ async def _load(s: AsyncSession, application_id: str):
     return app
 
 
+async def _rebase_local_fixture(s: AsyncSession, app, request: Request) -> None:
+    """Keep mock-board URLs on the port serving the current local request."""
+    if get_settings().production_mode:
+        return
+    posting = await repo.get_posting(s, app.posting_id)
+    if posting is None or posting.source != "fixture":
+        return
+    form = "multi" if "datastream" in posting.company.lower() else "single"
+    apply_url = f"{str(request.base_url).rstrip('/')}/mockboard/forms/{form}"
+    if posting.apply_url != apply_url:
+        posting.apply_url = apply_url
+        await repo.update_posting(s, posting)
+
+
+def _navigation_error(exc: httpx.HTTPError) -> HTTPException:
+    request = getattr(exc, "request", None)
+    target = str(request.url) if request is not None else "the application form"
+    return HTTPException(
+        502,
+        f"Could not reach {target}. Verify the job URL and that the local mock server uses the current port.",
+    )
+
+
 @router.post("/{application_id}/run")
-async def run(application_id: str, s: AsyncSession = Depends(get_session)):
-    await _load(s, application_id)
+async def run(
+    application_id: str, request: Request, s: AsyncSession = Depends(get_session)
+):
+    loaded = await _load(s, application_id)
+    await _rebase_local_fixture(s, loaded, request)
     try:
         app = await run_application(s, application_id)
     except ApprovalMissing as e:
         raise HTTPException(403, str(e)) from e
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
+    except httpx.HTTPError as e:
+        raise _navigation_error(e) from e
     return app.model_dump(mode="json")
 
 
@@ -55,15 +84,21 @@ async def tailor(application_id: str, s: AsyncSession = Depends(get_session)):
 
 
 @router.post("/{application_id}/preflight")
-async def preflight(application_id: str, s: AsyncSession = Depends(get_session)):
+async def preflight(
+    application_id: str, request: Request, s: AsyncSession = Depends(get_session)
+):
     app = await _load(s, application_id)
+    await _rebase_local_fixture(s, app, request)
     if app.status == "approved":
         app = await tailor_for_application(s, app)
     if app.status != "tailored":
         raise HTTPException(409, f"application is {app.status}, not tailored/preflightable")
     driver = get_driver()
     try:
-        app = await analyze(s, app, driver, f"/tmp/aijaa_preflight_{application_id}")
+        try:
+            app = await analyze(s, app, driver, f"/tmp/aijaa_preflight_{application_id}")
+        except httpx.HTTPError as e:
+            raise _navigation_error(e) from e
     finally:
         await driver.close()
     confidence = (app.plan or {}).get("confidence")
@@ -91,8 +126,15 @@ async def human_input(
     await _load(s, application_id)
     if not body.provided_by.strip():
         raise HTTPException(422, "provided_by is required")
-    app = await provide_human_input(s, application_id, body.answers, body.provided_by)
-    await enqueue_human_resume(s, app)
+    # provide_human_input() resumes execution synchronously — do not also
+    # enqueue a resume_after_human task here, or the application gets
+    # re-run twice (once inline, once whenever the queue is drained).
+    try:
+        app = await provide_human_input(s, application_id, body.answers, body.provided_by)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    except httpx.HTTPError as e:
+        raise _navigation_error(e) from e
     return app.model_dump(mode="json")
 
 
@@ -111,6 +153,8 @@ async def confirm_submit_endpoint(
         app = await confirm_and_submit(s, application_id, body.confirmed_by)
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
+    except httpx.HTTPError as e:
+        raise _navigation_error(e) from e
     return app.model_dump(mode="json")
 
 

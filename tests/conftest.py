@@ -1,4 +1,7 @@
+import json
 import os
+import tempfile
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -8,7 +11,8 @@ import aijaa.llm.factory as llm_factory
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(tmp_path, monkeypatch):
+async def isolated_env(tmp_path, monkeypatch):
+    await db.dispose_for_tests()
     monkeypatch.setenv("AIJAA_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path}/test.db")
     monkeypatch.setenv("AIJAA_ARTIFACTS_DIR", str(tmp_path / "artifacts"))
     monkeypatch.setenv("AIJAA_FAKE_LLM", "true")
@@ -16,7 +20,7 @@ def isolated_env(tmp_path, monkeypatch):
     db.reset_for_tests()
     llm_factory.reset_for_tests()
     yield
-    db.reset_for_tests()
+    await db.dispose_for_tests()
     llm_factory.reset_for_tests()
 
 
@@ -38,7 +42,81 @@ async def client():
         yield c
 
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "..", "fixtures", "postings")
+def _days_ago(n: int) -> str:
+    return (datetime.now(UTC) - timedelta(days=n)).isoformat()
+
+
+def _fresh_postings_dir() -> str:
+    """Postings dated relative to whenever the suite actually runs, not a
+    hardcoded absolute date — a static fixture with fixed dates silently ages
+    out of the 21-day freshness window as real time passes. Same companies/
+    titles/keywords as the original fixture; only the dates are computed."""
+    postings = [
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/cloudify/senior-backend-engineer?utm_source=feed",
+            "company": "Cloudify",
+            "title": "Senior Backend Engineer",
+            "location": "Tel Aviv, Israel",
+            "remote": True,
+            "description_html_or_text": "<p>We are hiring a Senior Backend Engineer. Required: Python, FastAPI, PostgreSQL, Kubernetes, Docker, AWS. You will build microservices, improve API latency, and lead engineers. Redis experience is a plus. Salary ₪32,000 - ₪42,000 monthly. Hybrid from Tel Aviv or remote.</p>",
+            "posted_at_iso": _days_ago(6),
+        },
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/datastream/backend-engineer",
+            "company": "DataStream",
+            "title": "Backend Engineer (Python)",
+            "location": "Remote",
+            "remote": True,
+            "description_html_or_text": "Backend Engineer needed. Must have Python and PostgreSQL. Nice to have: Kubernetes, AWS, Docker, Redis, ETL pipelines, microservices at scale. Senior engineers welcome.",
+            "posted_at_iso": _days_ago(2),
+        },
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/medcare/registered-nurse",
+            "company": "MedCare",
+            "title": "Registered Nurse",
+            "location": "Haifa, Israel",
+            "description_html_or_text": "Registered Nurse for the cardiology department. Nursing license required. Shift work. Patient care experience essential.",
+            "posted_at_iso": _days_ago(4),
+        },
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/oldco/python-developer",
+            "company": "OldCo",
+            "title": "Python Developer",
+            "location": "Tel Aviv",
+            "description_html_or_text": "Python developer with PostgreSQL and AWS. Docker, Kubernetes and FastAPI experience required. Microservices architecture.",
+            "posted_at_iso": _days_ago(200),  # always outside the 21-day window
+        },
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/betwin/backend-engineer",
+            "company": "BetWin",
+            "title": "Senior Backend Engineer",
+            "location": "Tel Aviv",
+            "description_html_or_text": "Senior Backend Engineer for our online gambling platform. Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, Redis, microservices.",
+            "posted_at_iso": _days_ago(3),
+        },
+        {
+            "source": "fixture",
+            "url": "https://boards.example.com/cloudify/senior-backend-engineer?utm_campaign=x",
+            "company": "Cloudify",
+            "title": "Senior Backend Engineer",
+            "location": "Tel Aviv, Israel",
+            "remote": True,
+            "description_html_or_text": "Duplicate listing of the Cloudify role via another feed. Python, FastAPI, PostgreSQL, Kubernetes.",
+            "posted_at_iso": _days_ago(6),
+        },
+    ]
+    d = tempfile.mkdtemp(prefix="aijaa_fixture_postings_")
+    with open(os.path.join(d, "batch1.json"), "w", encoding="utf-8") as f:
+        json.dump(postings, f)
+    return d
+
+
+FIXTURES_DIR = _fresh_postings_dir()
 
 
 PROFILE_PATCH = {

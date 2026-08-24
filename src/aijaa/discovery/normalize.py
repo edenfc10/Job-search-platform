@@ -48,7 +48,9 @@ def parse_salary(text: str) -> tuple[int | None, int | None]:
     return to_int(m.group(1)), to_int(m.group(2))
 
 
-def normalize(raw: RawPosting, posted_within_days: int) -> JobPosting | None:
+def normalize(
+    raw: RawPosting, posted_within_days: int, fixture_base_url: str | None = None
+) -> JobPosting | None:
     """Returns None when the posting is too stale to keep."""
     description = strip_html(raw.description_html_or_text)
     posted_at = None
@@ -71,7 +73,8 @@ def normalize(raw: RawPosting, posted_within_days: int) -> JobPosting | None:
     apply_url = url
     if raw.source == "fixture" and not get_settings().production_mode:
         form = "multi" if "datastream" in raw.company.lower() else "single"
-        apply_url = f"{get_settings().public_base_url.rstrip('/')}/mockboard/forms/{form}"
+        base_url = (fixture_base_url or get_settings().public_base_url).rstrip("/")
+        apply_url = f"{base_url}/mockboard/forms/{form}"
     return JobPosting(
         source=raw.source,
         canonical_url=url,

@@ -106,7 +106,11 @@ async def upsert_posting(s: AsyncSession, posting: JobPosting) -> tuple[str, boo
         posting.first_seen_at = existing.first_seen_at
         posting.last_seen_at = utcnow()
         existing.data = posting.model_dump(mode="json")
+        existing.source = posting.source
+        existing.company = posting.company
+        existing.title = posting.title
         existing.content_hash = posting.content_hash
+        existing.posted_at = posting.posted_at
         await s.commit()
         return existing.id, False
     s.add(
@@ -471,6 +475,33 @@ async def complete_task(s: AsyncSession, task_id: str) -> None:
         await s.commit()
 
 
+async def complete_queued_tasks_for_application(
+    s: AsyncSession, application_id: str, task_types: set[str]
+) -> int:
+    """Mark queued work as superseded when its stage already ran inline.
+
+    The current console remains synchronous for compatibility. Without this,
+    approval-created tasks stay queued forever when no separate local runner is
+    active and make the operational data misleading.
+    """
+    rows = (
+        await s.execute(
+            select(t.TaskRow).where(
+                t.TaskRow.application_id == application_id,
+                t.TaskRow.status == "queued",
+                t.TaskRow.task_type.in_(task_types),
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.status = "succeeded"
+        row.completed_at = utcnow()
+        row.error = "superseded by synchronous API execution"
+    if rows:
+        await s.commit()
+    return len(rows)
+
+
 async def fail_task(
     s: AsyncSession, task_id: str, error: str, retry_after_seconds: int | None = None
 ) -> None:
@@ -512,13 +543,21 @@ async def dead_letter_count(s: AsyncSession, seeker_id: str | None = None) -> in
     return int((await s.execute(q)).scalar_one())
 
 
-async def active_browser_tasks(s: AsyncSession, seeker_id: str | None = None) -> int:
+async def active_browser_tasks(
+    s: AsyncSession, seeker_id: str | None = None, exclude_task_id: str | None = None
+) -> int:
+    """Count of currently-running browser-stage tasks. `exclude_task_id` must be
+    passed by a task checking whether it itself may proceed — `claim_due_task`
+    marks a task 'running' before it runs, so without excluding its own id, a
+    task always counts itself as already active and can never start."""
     browser_types = {"run_analyze", "run_apply", "resume_after_human"}
     q = select(func.count()).select_from(t.TaskRow).where(
         t.TaskRow.status == "running", t.TaskRow.task_type.in_(browser_types)
     )
     if seeker_id:
         q = q.where(t.TaskRow.seeker_id == seeker_id)
+    if exclude_task_id:
+        q = q.where(t.TaskRow.id != exclude_task_id)
     return int((await s.execute(q)).scalar_one())
 
 

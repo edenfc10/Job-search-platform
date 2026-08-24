@@ -257,6 +257,26 @@ button:disabled {
   font-size: 13px;
 }
 
+.inline-message, .search-summary {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #c7dce1;
+  border-radius: 8px;
+  background: #f1f8f9;
+  color: #30444d;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.inline-message.error {
+  border-color: #e5bcbc;
+  background: #fff5f5;
+  color: var(--red);
+}
+
+.search-summary strong { color: var(--accent); }
+.field-error { border-color: var(--red); background: #fff8f8; }
+
 .check-list {
   display: grid;
   gap: 8px;

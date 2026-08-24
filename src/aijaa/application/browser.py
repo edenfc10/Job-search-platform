@@ -20,6 +20,7 @@ class PageDriver(Protocol):
     html: str
 
     async def goto(self, url: str) -> str: ...
+    async def fill_form(self, values: dict, files: dict[str, str]) -> None: ...
     async def submit_form(self, action: str, method: str, values: dict,
                           files: dict[str, str]) -> str: ...
     async def snapshot(self, path: str) -> str: ...
@@ -32,6 +33,8 @@ class HttpFormDriver:
         self._owns = client is None
         self.current_url = ""
         self.html = ""
+        self.filled_values: dict = {}
+        self.filled_files: dict[str, str] = {}
 
     async def goto(self, url: str) -> str:
         resp = await self._client.get(url)
@@ -40,8 +43,15 @@ class HttpFormDriver:
         self.html = resp.text
         return self.html
 
+    async def fill_form(self, values: dict, files: dict[str, str]) -> None:
+        # Plain HTTP has no live DOM to mutate. Retain the approved payload so
+        # snapshots/tests can prove preparation occurred before submission.
+        self.filled_values = dict(values)
+        self.filled_files = dict(files)
+
     async def submit_form(self, action: str, method: str, values: dict,
                           files: dict[str, str]) -> str:
+        await self.fill_form(values, files)
         url = urljoin(self.current_url, action) if action else self.current_url
         file_payload = {}
         opened = []
@@ -104,6 +114,15 @@ class PlaywrightDriver:
     async def submit_form(self, action: str, method: str, values: dict,
                           files: dict[str, str]) -> str:
         await self._ensure()
+        await self.fill_form(values, files)
+        await self._page.locator('button[type="submit"], input[type="submit"]').first.click()
+        await self._page.wait_for_load_state("domcontentloaded")
+        self.current_url = self._page.url
+        self.html = await self._page.content()
+        return self.html
+
+    async def fill_form(self, values: dict, files: dict[str, str]) -> None:
+        await self._ensure()
         for name, value in values.items():
             locator = self._page.locator(f'[name="{name}"]').first
             tag = await locator.evaluate("el => el.tagName.toLowerCase()")
@@ -118,11 +137,7 @@ class PlaywrightDriver:
                     await locator.fill(str(value))
         for name, path in files.items():
             await self._page.locator(f'[name="{name}"]').first.set_input_files(path)
-        await self._page.locator('button[type="submit"], input[type="submit"]').first.click()
-        await self._page.wait_for_load_state("domcontentloaded")
-        self.current_url = self._page.url
         self.html = await self._page.content()
-        return self.html
 
     async def snapshot(self, path: str) -> str:
         await self._ensure()
