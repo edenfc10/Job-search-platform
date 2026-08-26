@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AIJAA Search Loop</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260812-2">
+    <link rel="stylesheet" href="/static/styles.css?v=20260825-1">
   </head>
   <body>
     <main class="loop-shell">
@@ -182,6 +182,17 @@
           </div>
           <span class="status-pill" id="dry-run">Dry run unknown</span>
         </div>
+        <div class="human-gate hidden" id="human-input-panel" aria-live="polite">
+          <div>
+            <p class="eyebrow">Human checkpoint</p>
+            <h3 id="human-input-title">Human input required</h3>
+            <p id="human-input-reason"></p>
+          </div>
+          <div id="human-question-list"></div>
+          <div class="button-row">
+            <button class="primary" id="save-human-btn" type="button">Save Answers And Continue</button>
+          </div>
+        </div>
         <div class="button-row">
           <button class="primary" id="apply-btn" type="button">Fill Application</button>
           <button class="secondary" id="timeline-btn" type="button">Review Timeline</button>
@@ -192,6 +203,6 @@
     </main>
 
     <div id="toast" role="status" aria-live="polite"></div>
-    <script src="/static/app.js?v=20260812-2"></script>
+    <script src="/static/app.js?v=20260825-1"></script>
   </body>
 </html>

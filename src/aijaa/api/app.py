@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
             "status": "ok",
             "llm_mode": llm_mode,
             "dry_run": settings.dry_run,
+            "workflow_mode": settings.workflow_mode,
             "configured_greenhouse_orgs": csv_items(settings.greenhouse_orgs),
             "configured_lever_orgs": csv_items(settings.lever_orgs),
             **prod.model_dump(),

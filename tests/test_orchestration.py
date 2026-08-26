@@ -31,6 +31,29 @@ async def test_approved_match_enqueue_skips_terminal_application(session):
     assert created is False
 
 
+async def test_sync_console_approval_does_not_create_queued_work(client):
+    from tests.conftest import FIXTURES_DIR, create_complete_seeker
+
+    seeker_id = await create_complete_seeker(client)
+    discovered = await client.post(
+        "/v1/discovery/run", json={"fixtures_dir": FIXTURES_DIR}
+    )
+    assert discovered.status_code == 200, discovered.text
+    matched = await client.post(f"/v1/seekers/{seeker_id}/match/run")
+    assert matched.status_code == 200, matched.text
+    matches = (await client.get(f"/v1/seekers/{seeker_id}/matches")).json()
+
+    approved = await client.post(
+        f"/v1/matches/{matches[0]['match_id']}/decision",
+        json={"decision": "approved", "decided_by": "local-test"},
+    )
+    assert approved.status_code == 200, approved.text
+
+    pipeline = (await client.get(f"/v1/seekers/{seeker_id}/pipeline")).json()
+    assert pipeline["workflow_mode"] == "sync"
+    assert pipeline["tasks"] == {}
+
+
 async def test_browser_governor_enforces_global_and_per_seeker_caps(session, monkeypatch):
     monkeypatch.setenv("AIJAA_BROWSER_POOL_MAX", "1")
     get_settings.cache_clear()

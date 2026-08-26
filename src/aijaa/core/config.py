@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +11,9 @@ class Settings(BaseSettings):
     artifacts_dir: str = "./artifacts"
     public_base_url: str = "http://127.0.0.1:8000"
     production_mode: bool = False
+    # The local console calls compatibility endpoints synchronously. Set queue
+    # only when a separately managed worker is actually draining task rows.
+    workflow_mode: Literal["sync", "queue"] = "sync"
 
     llm_provider: str = "fake"  # fake | openai | anthropic
     openai_api_key: str = ""

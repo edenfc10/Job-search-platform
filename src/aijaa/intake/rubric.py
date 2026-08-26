@@ -33,7 +33,7 @@ def section_scores(profile: ProfessionalProfile, prefs: CareerPreferences) -> di
                 work += 0.2
         if len(profile.work_history) >= 2:
             work += 0.1
-    scores["work_history"] = int(WEIGHTS["work_history"] * work)
+    scores["work_history"] = round(WEIGHTS["work_history"] * work)
 
     scores["skills"] = int(WEIGHTS["skills"] * min(len(profile.skills) / 5, 1.0))
     scores["education"] = WEIGHTS["education"] if profile.education else 0

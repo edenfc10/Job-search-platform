@@ -2,6 +2,7 @@ const state = {
   seekerId: sessionStorage.getItem("aijaa.seekerId") || "",
   selectedMatchId: sessionStorage.getItem("aijaa.selectedMatchId") || "",
   selected: null,
+  application: null,
   matches: [],
   health: null,
   searchStats: null,
@@ -13,17 +14,26 @@ Tel Aviv, Israel | dana@example.com | +972-50-1234567
 LinkedIn: https://linkedin.com/in/danalevi
 GitHub: https://github.com/danalevi
 
+Summary
 Senior Backend Engineer with Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, and Redis experience.
 
-CloudWorks - Senior Backend Engineer - 2021-03 to Present - Tel Aviv
+Experience
+Senior Backend Engineer · CloudWorks · Tel Aviv (2021-03 – Present)
 - Reduced API p95 latency by 40% by rearchitecting the caching layer in Python and Redis.
 - Led a team of 5 engineers building FastAPI microservices on Kubernetes serving 2M users.
 
-DataNest - Backend Engineer - 2018-06 to 2021-02
+Backend Engineer · DataNest (2018-06 – 2021-02)
 - Built ETL pipelines in Python and PostgreSQL processing 500GB daily.
 
-Education: B.Sc. Computer Science, Tel Aviv University, 2018
-Languages: English, Hebrew
+Education
+B.Sc., Computer Science, Tel Aviv University, 2018
+
+Skills
+Python, FastAPI, PostgreSQL, Kubernetes, AWS, Docker, Redis, ETL
+
+Languages
+English, Hebrew
+
 Preferences: Senior Backend Engineer or Backend Engineer, Tel Aviv or Remote, minimum salary 30000 ILS, Israeli citizen, avoid gambling companies.`;
 
 const $ = (id) => document.getElementById(id);
@@ -73,12 +83,17 @@ function setSeeker(id) {
 }
 
 function setSelected(match) {
+  const previousApplicationId = state.selected?.application_id || "";
   state.selected = match || null;
   state.selectedMatchId = match?.match_id || "";
   if (state.selectedMatchId) sessionStorage.setItem("aijaa.selectedMatchId", state.selectedMatchId);
   else sessionStorage.removeItem("aijaa.selectedMatchId");
   $("selected-job").textContent = match?.posting?.company || "None";
   $("selected-card").textContent = match ? pretty(match) : "Select a job from the search results.";
+  if (previousApplicationId !== (match?.application_id || "")) {
+    state.application = null;
+    renderHumanInput(null);
+  }
   updateActionButtons();
 }
 
@@ -152,7 +167,7 @@ async function refreshHealth() {
   state.health = data;
   $("health-dot").className = "ok";
   $("health-status").textContent = data.production_ready ? "Ready" : "Needs configuration";
-  $("health-detail").textContent = `${data.llm_mode} LLM · dry_run=${data.dry_run}`;
+  $("health-detail").textContent = `${data.llm_mode} LLM · ${data.workflow_mode} workflows · dry_run=${data.dry_run}`;
   $("dry-run").textContent = data.dry_run ? "Dry run on" : "Live submit enabled";
   renderReadiness(data);
   document.querySelectorAll(".demo-only").forEach((el) => {
@@ -281,6 +296,7 @@ async function startNewLoop() {
   state.matches = [];
   state.searchStats = null;
   state.profileIssues = [];
+  state.application = null;
   setSeeker("");
   $("selected-job").textContent = "None";
   $("match-count").textContent = "0";
@@ -298,6 +314,7 @@ async function startNewLoop() {
   $("profile-output").textContent = "No interpreted profile yet.";
   $("tailor-output").textContent = "No tailored packet yet.";
   $("timeline-output").textContent = "No application run yet.";
+  renderHumanInput(null);
   updateActionButtons();
   toast("New search loop ready.");
 }
@@ -522,11 +539,12 @@ function renderMatches() {
   }
 }
 
-function selectMatch(matchId) {
+async function selectMatch(matchId) {
   const selected = state.matches.find((match) => match.match_id === matchId);
   if (!selected) throw new Error("Could not select job.");
   setSelected(selected);
   renderMatches();
+  if (selected.application_id) await loadApplicationDetails();
   location.hash = "#step-tailor";
 }
 
@@ -577,9 +595,103 @@ async function applySelected() {
   }
 }
 
+function renderHumanInput(app) {
+  state.application = app;
+  const panel = $("human-input-panel");
+  const questionsHost = $("human-question-list");
+  const saveButton = $("save-human-btn");
+  questionsHost.innerHTML = "";
+
+  if (!app || app.status !== "needs_human") {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  const questions = app.pending_questions || [];
+  const profileBlocked = questions.some((question) => question.reason === "invalid_candidate_profile");
+  $("human-input-title").textContent = profileBlocked
+    ? "Candidate profile needs correction"
+    : "Human input required";
+  $("human-input-reason").textContent = profileBlocked
+    ? "Correct and save the candidate profile above, then run Fill Application again."
+    : questions.length
+      ? "Answer every question below. The application will then rebuild the review packet."
+      : `Preparation stopped: ${app.needs_human_reason || "manual review is required"}.`;
+
+  for (const question of questions) {
+    const item = document.createElement("label");
+    item.className = "human-question";
+    const title = document.createElement("strong");
+    title.textContent = question.question || question.field;
+    item.appendChild(title);
+
+    if (question.reason) {
+      const reason = document.createElement("small");
+      reason.textContent = `Why this needs you: ${question.reason}`;
+      item.appendChild(reason);
+    }
+    if (question.issues?.length) {
+      const issues = document.createElement("small");
+      issues.textContent = `Fix: ${question.issues.join(", ")}`;
+      item.appendChild(issues);
+    }
+    if (question.reason !== "invalid_candidate_profile") {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.dataset.humanField = question.field;
+      input.placeholder = question.field === "salary" ? "e.g. ₪35,000 per month" : "Enter a truthful answer";
+      input.autocomplete = "off";
+      item.appendChild(input);
+    }
+    questionsHost.appendChild(item);
+  }
+  saveButton.classList.toggle(
+    "hidden",
+    profileBlocked || !questions.some((question) => question.reason !== "invalid_candidate_profile"),
+  );
+}
+
+async function loadApplicationDetails() {
+  const selected = requireSelected();
+  if (!selected.application_id) {
+    renderHumanInput(null);
+    return null;
+  }
+  const app = await api(`/v1/applications/${selected.application_id}`);
+  renderHumanInput(app);
+  return app;
+}
+
+async function saveHumanAnswers() {
+  const selected = requireSelected();
+  const inputs = [...document.querySelectorAll("[data-human-field]")];
+  const answers = {};
+  for (const input of inputs) {
+    const value = input.value.trim();
+    input.classList.toggle("field-error", !value);
+    if (!value) throw new Error("Answer every human-review question before continuing.");
+    answers[input.dataset.humanField] = value;
+  }
+  if (!Object.keys(answers).length) throw new Error("There are no answerable questions to save.");
+
+  const app = await api(`/v1/applications/${selected.application_id}/human-input`, {
+    method: "POST",
+    body: JSON.stringify({ answers, provided_by: "candidate-loop" }),
+  });
+  renderHumanInput(app);
+  await refreshSelected(selected.match_id);
+  await loadTimeline();
+  toast(`Answers saved. Application status: ${app.status}.`);
+}
+
 async function loadTimeline() {
   const selected = requireSelected();
-  const data = await api(`/v1/applications/${selected.application_id}/timeline`);
+  const [app, data] = await Promise.all([
+    api(`/v1/applications/${selected.application_id}`),
+    api(`/v1/applications/${selected.application_id}/timeline`),
+  ]);
+  renderHumanInput(app);
   $("timeline-output").innerHTML = data.events?.length ? renderTimeline(data.events) : `<pre>${pretty(data)}</pre>`;
 }
 
@@ -614,6 +726,7 @@ async function restoreSession() {
     $("profile-output").textContent = "Saved profile restored from the API.";
     showProfileProblems(profileProblems(data.profile, data.preferences));
     await refreshMatches();
+    if (state.selected?.application_id) await loadApplicationDetails();
   } catch (error) {
     setSelected(null);
     setSeeker("");
@@ -723,11 +836,17 @@ function boot() {
   attach("tailor-btn", tailorSelected);
   attach("handoff-btn", viewHandoff);
   attach("apply-btn", applySelected);
+  attach("save-human-btn", saveHumanAnswers);
   attach("timeline-btn", loadTimeline);
   attach("submit-btn", confirmSubmit);
-  $("match-list").addEventListener("click", (event) => {
+  $("match-list").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-action='select']");
-    if (button) selectMatch(button.dataset.id);
+    if (!button) return;
+    try {
+      await selectMatch(button.dataset.id);
+    } catch (error) {
+      toast(error.message, "error");
+    }
   });
   updateActionButtons();
   refreshHealth()

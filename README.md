@@ -1,175 +1,466 @@
 # AIJAA
 
-AIJAA is a headless AI job-application agent for operator clients. It intakes a
-job seeker's profile, generates truthful bilingual resumes, discovers and ranks
-jobs, waits for per-job human approval, tailors the resume, fills applications,
-stops at a pre-submit human gate, and validates receipts after an explicit submit
-confirmation.
+AIJAA is an operator-driven job application workflow. It turns a candidate CV
+into a reviewed professional profile, generates traceable resume artifacts,
+discovers and ranks jobs, tailors a resume for an approved role, prepares an
+application form, and stops at an explicit human confirmation gate before any
+submission.
 
-The reference build is intentionally lightweight: SQLite and deterministic fake
-LLMs by default. It contains a DB-backed task model and runner, but the FastAPI
-lifespan does not start that runner yet; the local console currently uses the
-direct synchronous compatibility endpoints. The production target remains
-Postgres/Redis/arq as documented in `../AIJAA_Prompt_Chain.md`.
+The current repository is a stable **local MVP**, not a production deployment.
+It proves the workflow safely with deterministic fake LLMs, local fixtures,
+SQLite, local artifacts, a mock ATS, and `DRY_RUN=true`.
 
-## Current checkpoint
+> [!WARNING]
+> The API currently has no authentication or organization isolation. Do not
+> expose it to the public internet or process real candidate data on a shared
+> host. Keep `AIJAA_DRY_RUN=true`; real external submission is not certified.
 
-As of 2026-08-24, the local MVP has 74 automated tests and a guarded end-to-end
-dry-run path. It is not production-ready: authentication, organization isolation,
-PostgreSQL/Alembic, Redis/arq workers, durable submit idempotency, private object
-storage, hardened uploads/manual URLs, deployment infrastructure, and CI/CD are
-still required. `QA_CHECKPOINT.md` preserves the earlier build history and records
-the current checkpoint at its top.
+## Current status
 
-## Architecture
+| Area | Status | Notes |
+|---|---|---|
+| CV upload and text extraction | Working locally | PDF, DOCX, TXT, Markdown, and JSON |
+| Editable candidate profile | Working locally | Versioned facts and career preferences |
+| English CV interpretation | Working locally | Multi-role CVs and month-level dates |
+| Hebrew CV interpretation | Partial | Hebrew section headings are supported |
+| Resume generation | Working locally | DOCX/TXT with fact references |
+| Hebrew resume generation | Partial | RTL layout exists; fake mode does not translate body content |
+| Job discovery | Working locally | Fixtures plus Greenhouse/Lever connector code |
+| Matching and filtering | Working locally | Freshness, dealbreakers, score floor, rationale, risks |
+| Human approval | Working locally | Required before tailoring or preparation |
+| Tailored resume | Working locally | Restricted to supported candidate facts |
+| Human questions | Working locally | Resolved in the web console without curl |
+| Application preparation | Proven against mock ATS | Stops at `ready_to_submit` |
+| Real browser application | Not certified | Playwright exists, but real ATS flows are not release-ready |
+| Real submission | Disabled | The verified path uses `DRY_RUN=true` |
+| Authentication and tenancy | Not implemented | Production blocker |
+| PostgreSQL, Redis, S3, AWS | Not implemented | Production blocker |
+
+Current verification baseline:
 
 ```text
-intake -> profile -> master resume
-discovery -> matcher -> approval gate
-approved -> local task queue -> tailor -> analyze -> fill -> ready_to_submit
-human confirm -> submit when DRY_RUN=false -> validate -> confirmed|needs_human
+79 tests passed
+Ruff passed
+JavaScript syntax passed
+Manual local flow reached ready_to_submit and dry_run_submit_suppressed
 ```
 
-Safety invariants are code-level defaults: `AIJAA_DRY_RUN=true`, fake LLMs unless
-explicitly configured, no application without approval, no CAPTCHA/login bypass,
-no retry after an ambiguous submit click, and match scores below 70 are withheld.
+## Product workflow
 
-## Runbook
+```mermaid
+flowchart LR
+    A[Upload or paste CV] --> B[Extract text]
+    B --> C[Interpret editable profile]
+    C --> D{Human profile review}
+    D -->|Save| E[Versioned candidate profile]
+    E --> F[Generate master resumes]
+    E --> G[Discover jobs]
+    G --> H[Filter and rank]
+    H --> I{Operator approval}
+    I -->|Reject| J[Stop]
+    I -->|Approve| K[Tailor resume]
+    K --> L[Analyze application form]
+    L --> M{Human input required?}
+    M -->|Yes| N[Answer sensitive or unsupported questions]
+    N --> L
+    M -->|No| O[Fill and capture review packet]
+    O --> P[ready_to_submit]
+    P --> Q{Explicit human confirmation}
+    Q -->|DRY_RUN=true| R[Record suppression; no external click]
+    Q -->|Certified live mode only| S[Submit and validate receipt]
+```
+
+### What happens at each stage
+
+1. **CV parsing** extracts text from an uploaded document. Nothing is persisted
+   as a candidate until the operator reviews and saves the interpreted draft.
+2. **Interpretation** creates two editable structures: verified candidate facts
+   and search preferences. The local parser is conservative and may require
+   manual correction for unusual CV layouts.
+3. **Intake** stores a new profile version and calculates deterministic
+   completeness. Required search fields gate downstream actions.
+4. **Resume generation** builds an intermediate representation (IR), links
+   bullets to candidate `fact_id` values, and renders DOCX/TXT artifacts.
+5. **Discovery** loads jobs from configured sources, canonicalizes URLs, removes
+   stale or duplicate records, and persists normalized postings.
+6. **Matching** applies hard filters and reranking. Scores below the configured
+   floor are withheld rather than presented as weak recommendations.
+7. **Approval** is an attributable, immutable per-job decision. An application
+   cannot advance without it.
+8. **Tailoring** reorders and rewrites supported content for the selected job.
+   Fabricated claims are rejected by the fact guard.
+9. **Application analysis** fingerprints the platform, extracts form fields,
+   detects blockers, and creates an application plan before filling anything.
+10. **Human input** handles salary, legal, clearance, demographic, CAPTCHA,
+    login, and unsupported questions without guessing or bypassing controls.
+11. **Preparation** fills the approved values, attaches the tailored resume,
+    captures evidence, and stops at `ready_to_submit`.
+12. **Confirmation** is a separate human gate. Under `DRY_RUN=true`, AIJAA
+    records `dry_run_submit_suppressed` and performs no external submit click.
+
+## Runtime architecture
+
+```mermaid
+flowchart TB
+    UI[Vanilla HTML/CSS/JavaScript console]
+    API[FastAPI API]
+    DB[(SQLite local database)]
+    FS[(Local artifact directory)]
+    LLM[Fake / OpenAI / Anthropic providers]
+    SOURCES[Fixtures / Greenhouse / Lever / Manual URL]
+    DRIVER[HTTP form driver / Playwright]
+    MOCK[Local mock ATS]
+
+    UI --> API
+    API --> DB
+    API --> FS
+    API --> LLM
+    API --> SOURCES
+    API --> DRIVER
+    DRIVER --> MOCK
+```
+
+The local console uses `AIJAA_WORKFLOW_MODE=sync`. Button actions call the
+compatibility endpoints directly and do not create orphaned background task
+rows. A DB-backed reference queue remains available with
+`AIJAA_WORKFLOW_MODE=queue`, but it must only be enabled when a separately
+managed runner drains it. The production target is PostgreSQL plus a
+transactional outbox and Redis/arq workers.
+
+## Code map
+
+```text
+src/aijaa/
+├── api/
+│   ├── app.py                 FastAPI application, health, metrics, static UI
+│   ├── routers/               CV, seeker, discovery, approval, application APIs
+│   └── static/                Current HTML/CSS/JavaScript operator console
+├── application/
+│   ├── analyzer.py            ATS detection and application-plan creation
+│   ├── answers.py             Field classification and safe answer routing
+│   ├── browser.py             HTTP and Playwright page drivers
+│   ├── executor.py            Fill, evidence, human stop, pre-submit gate
+│   ├── service.py             Application workflow orchestration
+│   └── validator.py           Confirmation and ambiguous-submit handling
+├── core/
+│   ├── config.py              Environment configuration
+│   ├── db.py                  Async SQLAlchemy database lifecycle
+│   ├── models.py              Domain models
+│   ├── repo.py                Persistence, status transitions, audits, tasks
+│   ├── status.py              Application state machine
+│   └── tables.py              SQLite/SQLAlchemy tables
+├── discovery/                 Sources, normalization, dedupe, freshness
+├── intake/                    Local parser, intake engine, completeness rubric
+├── llm/                       Provider protocols, fakes, OpenAI, Anthropic
+├── matching/                  Retrieval, filtering, reranking
+├── observability/             Structured logs, metrics, usage, webhooks
+├── orchestration/             Reference DB queue, runner, governance controls
+├── resume/                    Fact guard, tailoring, IR, DOCX/TXT rendering
+└── testkit/                   Local mock ATS and test fixtures
+
+tests/                         Unit, integration, E2E-style, eval, regression tests
+fixtures/                      Local job postings and application forms
+scripts/                       Demo and configuration checks
+```
+
+### Code-level request path
+
+For a typical local application preparation:
+
+```text
+static/app.js
+  -> api/routers/applications.py
+  -> application/service.py
+  -> application/analyzer.py
+  -> application/executor.py
+  -> application/browser.py
+  -> core/repo.py
+  -> SQLite + local_artifacts
+```
+
+Status changes must go through `repo.transition_application()`, which validates
+the state machine and records both timeline and audit entries.
+
+## Quick start
+
+Requirements:
+
+- Python 3.12 or newer
+- `python3` available on the command line
+- Node.js only for the JavaScript syntax check
+- `just` is optional
+
+### Install
 
 ```bash
 cd /path/to/AIJAA/aijaa
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-just ci
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
+```
+
+Or, with `just`:
+
+```bash
+just setup
+```
+
+### Run the safe local console
+
+```bash
+AIJAA_POSTED_WITHIN_DAYS=60 \
+AIJAA_PRODUCTION_MODE=false \
+AIJAA_FAKE_LLM=true \
+AIJAA_DRY_RUN=true \
+AIJAA_APPLY_DRIVER=http \
+AIJAA_WORKFLOW_MODE=sync \
+AIJAA_DATABASE_URL=sqlite+aiosqlite:///./aijaa_local.db \
+AIJAA_ARTIFACTS_DIR=./local_artifacts \
+.venv/bin/uvicorn aijaa.api.app:app --port 8010
+```
+
+Open:
+
+- Web console: <http://127.0.0.1:8010>
+- Swagger API: <http://127.0.0.1:8010/docs>
+- Health: <http://127.0.0.1:8010/healthz>
+- Metrics: <http://127.0.0.1:8010/metrics>
+
+Expected local health fields:
+
+```json
+{
+  "status": "ok",
+  "llm_mode": "fake",
+  "dry_run": true,
+  "workflow_mode": "sync",
+  "production_mode": false,
+  "apply_driver": "http"
+}
+```
+
+`production_ready=true` while `production_mode=false` only means the local
+configuration is internally valid. It is not a production-readiness claim.
+
+### Run the deterministic demo
+
+```bash
 just demo
-just run
 ```
 
-The API serves `/healthz`, `/docs`, `/metrics`, and the `/v1/...` operator surface.
-Use `AIJAA_DATABASE_URL` and `AIJAA_ARTIFACTS_DIR` to isolate environments.
+The demo uses local fixtures and fake LLMs. It does not spend provider tokens or
+submit external applications.
 
-## OpenAI Production Mode
+## Using a real CV locally
 
-Copy `.env.example` to `.env`, set `AIJAA_OPENAI_API_KEY`, and run the API:
+A real CV can be used in the local console, subject to these constraints:
+
+1. Keep the server bound to localhost and do not expose port 8010 publicly.
+2. Upload the file or paste its text.
+3. Review every interpreted field before selecting **Save Editable Profile**.
+4. Correct companies, titles, dates, salary, work authorization, and
+   dealbreakers when the source layout is ambiguous.
+5. Treat generated Hebrew artifacts as layout previews while fake mode is on.
+6. Use fixtures or manually vetted job URLs and keep `DRY_RUN=true`.
+
+Local candidate records are stored in the configured SQLite file. Generated
+resumes and HTML/PNG evidence are stored under `AIJAA_ARTIFACTS_DIR`. There is
+no encrypted object storage or automated retention policy in the local MVP.
+
+## API overview
+
+The service currently exposes 24 business endpoints under `/v1`.
+
+### CV and candidate profile
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/cv/parse` | Extract text from an uploaded CV |
+| `POST` | `/v1/cv/interpret` | Create editable profile/preference drafts |
+| `POST` | `/v1/seekers` | Create a candidate record |
+| `POST` | `/v1/seekers/{id}/intake/turns` | Save a new profile version |
+| `GET` | `/v1/seekers/{id}/profile` | Read the latest profile and completeness |
+| `POST` | `/v1/seekers/{id}/resume` | Generate an EN or HE master resume |
+| `GET` | `/v1/seekers/{id}/resume/latest` | Read the latest master resume |
+| `GET` | `/v1/seekers/{id}/usage` | Read candidate-scoped LLM usage |
+
+### Discovery, matching, and decisions
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/discovery/run` | Run configured job sources |
+| `POST` | `/v1/jobs/manual` | Add or fetch a manually supplied job URL |
+| `POST` | `/v1/seekers/{id}/match/run` | Filter and rank jobs for a candidate |
+| `GET` | `/v1/seekers/{id}/matches` | List surfaced matches |
+| `POST` | `/v1/matches/{id}/decision` | Approve or reject one match |
+| `POST` | `/v1/seekers/{id}/matches/decisions` | Submit batch decisions |
+| `GET` | `/v1/matches/{id}/handoff` | Build the operator handoff packet |
+| `GET` | `/v1/seekers/{id}/pipeline` | Read application/task/dead-letter counts |
+| `GET` | `/v1/usage` | Read global LLM usage |
+
+### Application preparation and confirmation
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/applications/{id}/tailor` | Generate the job-specific resume |
+| `POST` | `/v1/applications/{id}/preflight` | Analyze the form without filling it |
+| `POST` | `/v1/applications/{id}/run` | Run synchronous preparation |
+| `POST` | `/v1/applications/{id}/human-input` | Save human answers and resume preparation |
+| `POST` | `/v1/applications/{id}/confirm-submit` | Invoke the final confirmation gate |
+| `GET` | `/v1/applications/{id}` | Read the application record |
+| `GET` | `/v1/applications/{id}/timeline` | Read merged status, audit, and evidence events |
+
+Operational endpoints:
+
+- `GET /healthz`
+- `GET /metrics`
+- `GET /docs`
+- `GET /openapi.json`
+
+When `AIJAA_PRODUCTION_MODE=false`, a mock ATS is mounted under `/mockboard`
+for local tests. It is not mounted in production mode.
+
+## Application states
+
+```text
+discovered
+  -> matched
+  -> approved | failed
+  -> tailored
+  -> applying
+  -> needs_human <-> applying
+  -> ready_to_submit
+  -> submitted
+  -> confirmed | needs_human | failed
+```
+
+`needs_human` is a safety state, not a generic failure. CAPTCHA, login, sensitive
+questions, unsupported required fields, profile drift, form drift, and ambiguous
+post-click outcomes must stop for human review.
+
+## Safety invariants
+
+- `AIJAA_DRY_RUN=true` by default.
+- No tailoring or application preparation without explicit match approval.
+- Match scores below `AIJAA_MATCH_FLOOR` are withheld.
+- Resume and answer generation is checked against candidate facts.
+- Salary, legal status, clearance, demographic, and unsupported questions route
+  to a human.
+- CAPTCHA, login, 2FA, and bot walls are never bypassed.
+- An ambiguous post-submit state is never automatically retried.
+- Application status changes are validated and audited.
+- Local sync mode does not create queue rows that no worker will consume.
+
+These invariants reduce risk; they do not replace authentication, tenant
+isolation, idempotent submission attempts, or production infrastructure.
+
+## Configuration
+
+All settings use the `AIJAA_` prefix.
+
+| Setting | Local default | Purpose |
+|---|---|---|
+| `AIJAA_DATABASE_URL` | SQLite | Database connection URL |
+| `AIJAA_ARTIFACTS_DIR` | `./artifacts` | Resume and evidence output directory |
+| `AIJAA_PRODUCTION_MODE` | `false` | Disable local fixtures and mock controls when true |
+| `AIJAA_WORKFLOW_MODE` | `sync` | Sync console execution or opt-in reference queue |
+| `AIJAA_FAKE_LLM` | `true` | Use deterministic provider fakes |
+| `AIJAA_LLM_PROVIDER` | `fake` | `fake`, `openai`, or `anthropic` |
+| `AIJAA_DRY_RUN` | `true` | Suppress external submit clicks |
+| `AIJAA_APPLY_DRIVER` | `http` | `http` for local forms; `playwright` for browser flows |
+| `AIJAA_MATCH_FLOOR` | `70` | Minimum surfaced match score |
+| `AIJAA_POSTED_WITHIN_DAYS` | `21` | Posting freshness window |
+| `AIJAA_APPLICATIONS_PER_DAY` | `10` | Per-candidate daily cap |
+| `AIJAA_BROWSER_POOL_MAX` | `3` | Browser concurrency ceiling |
+| `AIJAA_DOMAIN_APPLICATION_INTERVAL_SECONDS` | `120` | Per-domain application pacing |
+| `AIJAA_GREENHOUSE_ORGS` | empty | Comma-separated public board IDs |
+| `AIJAA_LEVER_ORGS` | empty | Comma-separated public board IDs |
+
+`.env.example` is a configuration reference, not a statement that the current
+repository is safe to deploy. Do not place real secrets in Git.
+
+## Tests and quality gates
+
+Run the complete local gate:
 
 ```bash
-cp .env.example .env
-# edit .env with the real key
-.venv/bin/pip install -e ".[dev,apply]"
-.venv/bin/python scripts/check_production.py
-.venv/bin/uvicorn aijaa.api.app:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m pytest -q
+.venv/bin/python -m ruff check .
+node --check src/aijaa/api/static/app.js
+git diff --check
 ```
 
-Required settings:
-
-- `AIJAA_FAKE_LLM=false`
-- `AIJAA_LLM_PROVIDER=openai`
-- `AIJAA_OPENAI_API_KEY=...`
-- `AIJAA_PRODUCTION_MODE=true`
-- `AIJAA_APPLY_DRIVER=playwright`
-- at least one real source: `AIJAA_ENABLE_MANUAL_URLS=true`,
-  `AIJAA_GREENHOUSE_ORGS`, `AIJAA_LEVER_ORGS`, or a permissioned partner feed
-
-Defaults (verify against OpenAI's current model catalog before going live):
-
-- `AIJAA_OPENAI_MODEL_FAST=gpt-4.1-mini`
-- `AIJAA_OPENAI_MODEL_SMART=gpt-4.1`
-
-Keep `AIJAA_DRY_RUN=true` while using real models unless the production
-submit-readiness checklist below is complete.
-
-Production mode disables sample/fixture controls in the UI, ignores fixture
-sources, does not mount the local mock ATS, and reports missing requirements from
-`/healthz`. Manual job URLs are supported through `POST /v1/jobs/manual` and the
-search UI. LinkedIn, Drushim, AllJobs, and JobMaster should only be used via
-approved APIs/feeds/permissioned access or user-provided manual URLs; AIJAA does
-not scrape them or bypass access controls.
-
-## Production QA
-
-1. Install runtime dependencies:
+Or:
 
 ```bash
-.venv/bin/pip install -e ".[dev,apply]"
+just ci
 ```
 
-2. Validate configuration:
+The suite covers:
 
-```bash
-.venv/bin/python scripts/check_production.py
-```
+- CV parsing and English/Hebrew interpretation regressions.
+- Profile completeness and required preferences.
+- Resume truthfulness and artifact generation.
+- Freshness, deduplication, dealbreakers, and match score floors.
+- Approval immutability and downstream authorization gates.
+- Human-question pause and resume.
+- CAPTCHA stops and zero bypass attempts.
+- Dry-run suppression and ambiguous-submit behavior.
+- Task idempotency, governance, dead letters, and local sync behavior.
+- API timeline, metrics, usage, and production-mode configuration checks.
 
-3. Start supervised production:
-
-```bash
-.venv/bin/uvicorn aijaa.api.app:app --host 127.0.0.1 --port 8000
-```
-
-4. In the UI, confirm `/healthz` shows `production_ready=true`,
-   `llm_mode=openai`, and `dry_run=true`.
-5. Upload/paste a real CV, interpret with OpenAI, review/edit profile fields, and
-   build master CV files.
-6. Add real sources: configured Greenhouse/Lever orgs or manual job URLs.
-7. Search/match, select one job, approve it, tailor CV files, then run preflight
-   and fill to `ready_to_submit`.
-8. Inspect the timeline/evidence and tailored packet before any final submit.
-
-## Operator Flow
-
-1. Create a seeker with `POST /v1/seekers`.
-2. Run intake turns with `POST /v1/seekers/{id}/intake/turns`.
-3. Build resumes with `POST /v1/seekers/{id}/resume`.
-4. Run discovery and matching with `POST /v1/discovery/run` and
-   `POST /v1/seekers/{id}/match/run`.
-5. Review matches through `GET /v1/seekers/{id}/matches`.
-6. Approve one job at a time with `POST /v1/matches/{id}/decision`.
-7. Monitor `GET /v1/seekers/{id}/pipeline` and
-   `GET /v1/applications/{id}/timeline`.
-8. Resolve `needs_human` with `POST /v1/applications/{id}/human-input`.
-9. Submit only from `ready_to_submit` using
-   `POST /v1/applications/{id}/confirm-submit`.
-
-The local queue is additive: approval events create idempotent task rows, while
-direct run endpoints execute synchronously for QA and the current web console.
-Until a worker process is wired in, queued rows are operational records rather
-than proof that background work is being drained.
-
-## Governance
-
-Defaults:
-
-- `AIJAA_APPLICATIONS_PER_DAY=10`
-- `AIJAA_BROWSER_POOL_MAX=3`
-- `AIJAA_DOMAIN_APPLICATION_INTERVAL_SECONDS=120`
-- `AIJAA_DISCOVERY_INTERVAL_HOURS=6`
-
-Tune these limits downward for sensitive boards or early production rollout.
-Do not add per-seeker overrides that exceed global domain politeness.
-
-## Needs Human
-
-`needs_human` is a safe stop, not an error. Common reasons are CAPTCHA/login walls,
-sensitive screening questions, unmapped required fields, and ambiguous submit
-states. Operators should inspect `/timeline`, answer pending questions or resolve
-the external state, then resume via the human-input endpoint.
+`QA_CHECKPOINT.md` records the verified local checkpoints and manual acceptance
+history.
 
 ## Observability
 
-- JSON logs are redacted for configured PII/secret keys.
-- Audit events are append-only and include status transitions, decisions, human
-  input, submit events, and webhook attempts.
-- `/metrics` returns Prometheus text metrics.
-- `/v1/seekers/{id}/usage?window=30d` and `/v1/usage?window=30d` summarize LLM
-  usage. Fake LLM mode records zero-cost deterministic behavior unless a live
-  Claude run is explicitly configured.
+- Structured logs are emitted through `structlog` with configured redaction.
+- Status transitions, decisions, human input, evidence, and submit events are
+  retained in the audit/timeline model.
+- `GET /metrics` exposes Prometheus text metrics.
+- Candidate and global usage endpoints aggregate provider calls and tokens.
 
-## DRY_RUN Flip Policy
+Metrics, usage, timelines, artifacts, and readiness are not protected yet and
+must not remain public in production.
 
-Code default remains `AIJAA_DRY_RUN=true`. Flip it per environment only after:
+## Production gaps
 
-- `just ci` passes.
-- Mock-board E2E and eval gates pass.
-- Operator webhook/human-input staffing is live.
-- Per-domain limits have been reviewed and, if anything, tuned downward.
-- First-week monitoring owners are assigned for stalled applications,
-  `needs_human` volume, webhook failures, and confirmation rates.
+Before processing live candidate data or enabling external submission, the
+following are required:
+
+1. Cognito authentication with mandatory MFA and server-side JWT validation.
+2. Organization ownership and tenant-scoped repositories on every `/v1` route.
+3. PostgreSQL migrations with Alembic; no runtime `create_all()` in production.
+4. Redis/arq workers plus a transactional PostgreSQL outbox.
+5. Immutable submission authorizations, review versions, idempotency keys, and
+   separate submission-attempt records.
+6. S3/KMS private artifacts, signed downloads, lifecycle rules, and deletion
+   workflows.
+7. Upload size/MIME/signature validation, quarantine, and malware scanning.
+8. HTTPS-only manual URLs with redirect validation, DNS/IP protections, and
+   response limits.
+9. Playwright/Chromium startup enforcement with no HTTP-driver fallback.
+10. Certified Greenhouse and Lever browser flows and manual handoff for unknown
+    portals.
+11. PostgreSQL/Redis/browser integration tests, measurable quality evals, CI/CD,
+    infrastructure as code, monitoring, backups, and operational runbooks.
+
+The intended production architecture is AWS `eu-central-1` with ECS/Fargate,
+ALB/WAF, Cognito, RDS PostgreSQL, ElastiCache Redis, encrypted S3, CloudWatch,
+and separate API, worker, browser-worker, and scheduler services.
+
+## Development rules
+
+- Keep `DRY_RUN=true` during development and staging validation.
+- Treat the candidate profile as the source of truth for every generated claim.
+- Preserve human approval and pre-submit confirmation as separate gates.
+- Add regression tests before fixing parsing, matching, or submission bugs.
+- Do not scrape access-controlled boards or bypass platform protections.
+- Do not enable queue mode without a running worker.
+- Do not commit local databases, candidate documents, artifacts, or secrets.
+
+## Related documentation
+
+- `QA_CHECKPOINT.md` — verified checkpoints and manual QA history.
+- `AIJAA_Prompt_Chain.md` — original product and architecture prompt chain.
+- `CLAUDE.md` — repository conventions and implementation history.

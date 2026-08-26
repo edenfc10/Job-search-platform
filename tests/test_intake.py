@@ -16,7 +16,10 @@ def test_complete_profile_passes_threshold():
     profile = ProfessionalProfile.model_validate({"seeker_id": "x", **PROFILE_PATCH})
     prefs = CareerPreferences.model_validate({"seeker_id": "x", **PREFERENCES_PATCH})
     overall, scores, missing, complete = completeness(profile, prefs)
-    assert overall >= 85 and complete
+    assert overall == 100
+    assert scores["work_history"] == 30
+    assert missing == []
+    assert complete
 
 
 def test_hard_fields_gate_completion():

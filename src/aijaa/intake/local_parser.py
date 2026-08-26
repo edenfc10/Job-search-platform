@@ -33,6 +33,21 @@ _SECTION_HEADINGS = {
     "profile",
     "summary",
 }
+_HEADING_ALIASES = {
+    "תקציר": "summary",
+    "פרופיל": "profile",
+    "ניסיון": "experience",
+    "ניסיון מקצועי": "experience",
+    "ניסיון תעסוקתי": "experience",
+    "השכלה": "education",
+    "מיומנויות": "skills",
+    "כישורים": "skills",
+    "שפות": "languages",
+    "שירות צבאי": "military service",
+    "התנדבות": "volunteering",
+    "הסמכות": "certifications",
+    "קישורים": "links",
+}
 _ROLE_WORDS = (
     "lawyer",
     "attorney",
@@ -123,8 +138,12 @@ _LOCATION_TERMS = (
     "ישראל",
 )
 _YEAR_RANGE_RE = re.compile(
-    r"\b(?P<start>(?:19|20)\d{2})(?:[-/.](?P<month>0?[1-9]|1[0-2]))?\s*"
-    r"(?:[-–—]|to)\s*(?P<end>(?:19|20)\d{2}|present|current|היום)",
+    r"\b(?P<start_year>(?:19|20)\d{2})"
+    r"(?:[-/.](?P<start_month>0?[1-9]|1[0-2]))?\s*"
+    r"(?:[-–—]|to)\s*"
+    r"(?:(?P<end_year>(?:19|20)\d{2})"
+    r"(?:[-/.](?P<end_month>0?[1-9]|1[0-2]))?"
+    r"|(?P<open_end>present|current|today|היום|כיום))\b",
     re.I,
 )
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
@@ -145,7 +164,9 @@ def _clean_lines(text: str) -> list[str]:
 
 def _heading(line: str) -> str | None:
     normalized = line.strip().rstrip(":").lower()
-    return normalized if normalized in _SECTION_HEADINGS else None
+    if normalized in _SECTION_HEADINGS:
+        return normalized
+    return _HEADING_ALIASES.get(normalized)
 
 
 def _section(lines: list[str], names: set[str]) -> list[str]:
@@ -207,46 +228,56 @@ def _skills(lines: list[str], text: str) -> list[str]:
     return list(unique.values())[:20]
 
 
-def _role_line(lines: list[str]) -> tuple[str, str, int]:
-    experience = _section(
-        lines,
-        {"employment history", "experience", "work experience", "professional experience"},
-    )
-    search_lines = experience or lines
-    for index, line in enumerate(search_lines):
-        lowered = line.lower()
-        if any(term.lower() in lowered for term in _ROLE_WORDS) and not _heading(line):
-            title, separator, company = line.partition(",")
-            if not separator:
-                parts = re.split(r"\s[-–—|]\s", line, maxsplit=1)
-                title, company = parts[0], parts[1] if len(parts) > 1 else ""
-            original_index = lines.index(line) if line in lines else index
-            return title.strip(), company.strip(), original_index
-    return "", "", 0
-
-
 def _dates_near(lines: list[str], start_index: int) -> tuple[str, str | None]:
-    for line in lines[start_index : start_index + 4]:
+    for line in lines[start_index : start_index + 3]:
         match = _YEAR_RANGE_RE.search(line)
         if match:
-            month = (match.group("month") or "01").zfill(2)
-            end_raw = match.group("end").lower()
-            end = None if end_raw in {"present", "current", "היום"} else f"{end_raw}-12"
-            return f"{match.group('start')}-{month}", end
+            start_month = (match.group("start_month") or "01").zfill(2)
+            end_year = match.group("end_year")
+            end_month = (match.group("end_month") or "12").zfill(2)
+            end = f"{end_year}-{end_month}" if end_year else None
+            return f"{match.group('start_year')}-{start_month}", end
     return "", None
 
 
-def _achievements(lines: list[str], role_index: int) -> list[dict]:
+def _is_role_line(line: str) -> bool:
+    if line.startswith(("•", "-", "–", "—")) or _heading(line):
+        return False
+    lowered = line.lower()
+    return any(term.lower() in lowered for term in _ROLE_WORDS)
+
+
+def _split_role_line(line: str) -> tuple[str, str, str | None]:
+    without_dates = _YEAR_RANGE_RE.sub("", line)
+    without_dates = without_dates.replace("()", "").strip(" ()|,·-–—")
+    parts = [part.strip(" ()|,·-–—") for part in re.split(r"\s*[·|]\s*", without_dates)]
+    parts = [part for part in parts if part]
+    if len(parts) < 2:
+        parts = [part.strip() for part in without_dates.split(",", maxsplit=1)]
+    if len(parts) < 2:
+        parts = [part.strip(" ()|,·-–—") for part in re.split(r"\s[-–—]\s", without_dates)]
+        parts = [part for part in parts if part]
+    title = parts[0] if parts else ""
+    company = parts[1] if len(parts) > 1 else ""
+    location = parts[2] if len(parts) > 2 else None
+    title_has_role = any(term.lower() in title.lower() for term in _ROLE_WORDS)
+    company_has_role = any(term.lower() in company.lower() for term in _ROLE_WORDS)
+    if company_has_role and not title_has_role:
+        title, company = company, title
+    return title, company, location
+
+
+def _achievements(lines: list[str], role_index: int, fact_start: int) -> list[dict]:
     out: list[dict] = []
     for line in lines[role_index + 1 : role_index + 16]:
-        if _heading(line) or (out and any(term.lower() in line.lower() for term in _ROLE_WORDS)):
+        if _heading(line) or _is_role_line(line):
             break
         if line.startswith(("•", "-", "–")):
             value = line.lstrip("•-–— ")
             if value:
                 out.append(
                     {
-                        "fact_id": f"cv_f{len(out) + 1}",
+                        "fact_id": f"cv_f{fact_start + len(out)}",
                         "text": value,
                         "kind": "achievement",
                         "quantified": bool(re.search(r"\d", value)),
@@ -257,21 +288,74 @@ def _achievements(lines: list[str], role_index: int) -> list[dict]:
     return out
 
 
+def _work_history(lines: list[str], default_location: str | None) -> list[dict]:
+    experience = _section(
+        lines,
+        {"employment history", "experience", "work experience", "professional experience"},
+    )
+    search_lines = experience or lines
+
+    history: list[dict] = []
+    fact_start = 1
+    for index, line in enumerate(search_lines):
+        if not _is_role_line(line):
+            continue
+        start, end = _dates_near(search_lines, index)
+        if not start:
+            continue
+        title, company, location = _split_role_line(line)
+        if not title or not company:
+            continue
+        achievements = _achievements(search_lines, index, fact_start)
+        fact_start += len(achievements)
+        history.append(
+            {
+                "company": company,
+                "title": title,
+                "start": start,
+                "end": end,
+                "location": location or default_location,
+                "achievements": achievements,
+            }
+        )
+    return history
+
+
 def _education(lines: list[str]) -> list[dict]:
     out: list[dict] = []
     for line in _section(lines, {"education"}):
         if not re.search(r"university|college|degree|b\.?sc|m\.?sc|llb|llm|bachelor|master|אוניברסיט|מכלל", line, re.I):
             continue
-        institutions = re.findall(r"(?:[A-Z][\w'’-]+\s+){0,4}(?:University|College)", line)
-        institution = institutions[-1] if institutions else line
-        year = re.search(r"\b(?:19|20)\d{2}\b", line)
-        degree = re.search(r"\b(?:LLB|LLM|B\.?Sc\.?|M\.?Sc\.?|BA|MA|Bachelor|Master)\b[^,;]*", line, re.I)
+        values = [value.strip(" |") for value in line.split(",")]
+        institution = next(
+            (
+                value
+                for value in values
+                if re.search(r"university|college|אוניברסיט|מכלל", value, re.I)
+            ),
+            "",
+        )
+        year_matches = re.findall(r"\b(?:19|20)\d{2}\b", line)
+        degree = re.search(
+            r"\b(?:LLB|LLM|B\.?Sc\.?|M\.?Sc\.?|BA|MA|Bachelor|Master)\b[^,;]*",
+            line,
+            re.I,
+        )
+        degree_value = degree.group(0).strip() if degree else ""
+        degree_part = next((value for value in values if degree_value in value), "")
+        institution_index = values.index(institution) if institution in values else -1
+        degree_index = values.index(degree_part) if degree_part in values else -1
+        field_parts = [
+            value
+            for value in values[degree_index + 1 : institution_index]
+            if value and not re.fullmatch(r"(?:19|20)\d{2}", value)
+        ]
         out.append(
             {
-                "institution": institution.strip(" ,"),
-                "degree": degree.group(0).strip() if degree else "",
-                "field": "",
-                "year": year.group(0) if year else None,
+                "institution": institution,
+                "degree": degree_value,
+                "field": ", ".join(field_parts),
+                "year": year_matches[-1] if year_matches else None,
             }
         )
         if len(out) >= 3:
@@ -281,6 +365,12 @@ def _education(lines: list[str]) -> list[dict]:
 
 def _target_titles(text: str, current_title: str) -> list[str]:
     targets: list[str] = []
+    preference_line = re.search(r"(?:preferences?|target roles?)\s*:\s*([^\n,]+)", text, re.I)
+    if preference_line:
+        for value in re.split(r"\s+(?:or|או)\s+", preference_line.group(1), flags=re.I):
+            value = value.strip()
+            if any(term.lower() in value.lower() for term in _ROLE_WORDS):
+                targets.append(value)
     aspiration = re.search(
         r"(?:aspir(?:e|es|ing) to (?:act|work|serve) as|target(?:ing)?|seeking)\s+(?:an?\s+)?([^.;\n]+)",
         text,
@@ -294,30 +384,28 @@ def _target_titles(text: str, current_title: str) -> list[str]:
     return list(dict.fromkeys(t for t in targets if t))[:4]
 
 
+def _minimum_salary(text: str) -> int | None:
+    match = re.search(
+        r"(?:minimum salary|min(?:imum)? salary|salary expectation|שכר מינימלי|ציפיות שכר)"
+        r"\D{0,20}(\d[\d, ]{3,})",
+        text,
+        re.I,
+    )
+    if not match:
+        return None
+    return int(re.sub(r"\D", "", match.group(1)))
+
+
 def interpret_local_cv(text: str) -> LocalInterpretation:
     lines = _clean_lines(text)
     email = _EMAIL_RE.search(text)
     phone = _PHONE_RE.search(text)
     links = [match.rstrip("),.;") for match in _URL_RE.findall(text)]
     locations = _locations(text)
-    title, company, role_index = _role_line(lines)
-    start, end = _dates_near(lines, role_index)
     skills = _skills(lines, text)
     name = _candidate_name(lines)
-    achievements = _achievements(lines, role_index)
-
-    work_history = []
-    if title:
-        work_history.append(
-            {
-                "company": company or "Company requires review",
-                "title": title,
-                "start": start or "2000-01",
-                "end": end,
-                "location": locations[0] if locations else None,
-                "achievements": achievements,
-            }
-        )
+    work_history = _work_history(lines, locations[0] if locations else None)
+    title = work_history[0]["title"] if work_history else ""
 
     languages: list[str] = []
     if re.search(r"\bhebrew\b|עברית", text, re.I):
@@ -340,7 +428,7 @@ def interpret_local_cv(text: str) -> LocalInterpretation:
         warnings.append("No skills section was identified; add verified skills before matching.")
     if not targets:
         warnings.append("No target role was identified; add at least one target title.")
-    if not start:
+    if not work_history:
         warnings.append("Employment start date was not confidently identified; review work history.")
 
     profile_patch = {
@@ -372,14 +460,22 @@ def interpret_local_cv(text: str) -> LocalInterpretation:
         "industries": industries,
         "locations": locations,
         "remote_policy": "remote" if re.search(r"\bremote\b|מרחוק", text, re.I) else "hybrid",
-        "min_salary": None,
+        "min_salary": _minimum_salary(text),
         "currency": "ILS" if re.search(r"\bILS\b|₪|Israel|ישראל", text, re.I) else "USD",
         "work_authorization": (
             "Explicitly stated in CV"
             if re.search(r"citizen|authorized to work|work authori[sz]ation|אזרחות|מורשה לעבוד", text, re.I)
             else None
         ),
-        "dealbreakers": [],
+        "dealbreakers": (
+            ["gambling"]
+            if re.search(
+                r"(?:avoid|exclude|dealbreakers?|do not want|לא מעוניינ|להימנע)[^.\n]{0,50}gambling",
+                text,
+                re.I,
+            )
+            else []
+        ),
         "resume_languages": ["en", "he"] if "Hebrew" in languages else ["en"],
     }
     return LocalInterpretation(profile_patch, preferences_patch, warnings)

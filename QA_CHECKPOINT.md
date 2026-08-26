@@ -1,6 +1,6 @@
 # AIJAA — Current Checkpoint
 
-**Date:** 2026-08-24 · **Status:** local MVP stabilized; production foundation not started.
+**Date:** 2026-08-26 · **Status:** local MVP flow completed; production foundation not started.
 
 Current verification target:
 
@@ -10,11 +10,15 @@ node --check src/aijaa/api/static/app.js
 .venv-run/bin/python -m pytest -q
 ```
 
-Expected result: 74 tests pass. The local UI now restores the active seeker and
-selected match, prevents stale static assets, blocks placeholder candidate data,
+Expected result: 79 tests pass. The local parser now extracts multiple jobs,
+month-level dates, education, salary preferences, and Hebrew section headings.
+The UI restores the active seeker/application, resolves `needs_human` questions
+without curl, prevents stale static assets, blocks placeholder candidate data,
 invalidates reviews after profile changes, rebuilds resume artifacts by profile
-version, and keeps dry-run submission non-destructive. The DB-backed runner still
-is not started by FastAPI, so PostgreSQL/Redis/arq, authentication/tenant isolation,
+version, and keeps dry-run submission non-destructive. Local workflows now run in
+explicit `sync` mode and do not create orphaned task rows. The reference DB-backed
+runner remains opt-in and is not started by FastAPI, so PostgreSQL/Redis/arq,
+authentication/tenant isolation,
 durable submission attempts, hardened storage/network inputs, CI/CD, and AWS
 infrastructure remain production blockers.
 

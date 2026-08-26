@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from aijaa.core import repo
+from aijaa.core.config import get_settings
 from aijaa.core.db import get_session
 from aijaa.core.models import utcnow
 from aijaa.core.status import ApplicationStatus
@@ -88,7 +89,7 @@ async def decide(match_id: str, body: DecisionRequest, s: AsyncSession = Depends
             s, app, new_status, actor=f"operator:{body.decided_by}",
             reason=body.note or body.decision,
         )
-        if body.decision == "approved":
+        if body.decision == "approved" and get_settings().workflow_mode == "queue":
             await enqueue_approved_match(s, match, app)
     await repo.audit(
         s, match.seeker_id, "match", match_id, f"decision:{body.decision}",

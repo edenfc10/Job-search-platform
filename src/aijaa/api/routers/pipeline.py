@@ -144,6 +144,7 @@ async def pipeline_status(seeker_id: str, s: AsyncSession = Depends(get_session)
     tasks = await repo.task_counts(s, seeker_id)
     return {
         "seeker_id": seeker_id,
+        "workflow_mode": get_settings().workflow_mode,
         "applications": {status: count for status, count in status_rows},
         "tasks": tasks,
         "in_flight_tasks": tasks.get("running", 0),
