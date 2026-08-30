@@ -8,7 +8,7 @@ submission.
 
 The current repository is a stable **local MVP**, not a production deployment.
 It proves the workflow safely with deterministic fake LLMs, local fixtures,
-SQLite, local artifacts, a mock ATS, and `DRY_RUN=true`.
+PostgreSQL or SQLite, local artifacts, a mock ATS, and `DRY_RUN=true`.
 
 > [!WARNING]
 > The API currently has no authentication or organization isolation. Do not
@@ -34,14 +34,17 @@ SQLite, local artifacts, a mock ATS, and `DRY_RUN=true`.
 | Real browser application | Not certified | Playwright exists, but real ATS flows are not release-ready |
 | Real submission | Disabled | The verified path uses `DRY_RUN=true` |
 | Authentication and tenancy | Not implemented | Production blocker |
-| PostgreSQL, Redis, S3, AWS | Not implemented | Production blocker |
+| PostgreSQL and Alembic | Working locally | PostgreSQL 16, reversible initial migration, startup head check |
+| Redis | Infrastructure only | Healthy local service; no queue or worker uses it yet |
+| S3 and AWS | Not implemented | Production blocker |
 
 Current verification baseline:
 
 ```text
-79 tests passed
+83 tests passed
 Ruff passed
 JavaScript syntax passed
+PostgreSQL upgrade/downgrade/upgrade passed on an isolated database
 Manual local flow reached ready_to_submit and dry_run_submit_suppressed
 ```
 
@@ -104,7 +107,8 @@ flowchart LR
 flowchart TB
     UI[Vanilla HTML/CSS/JavaScript console]
     API[FastAPI API]
-    DB[(SQLite local database)]
+    DB[(PostgreSQL / SQLite)]
+    REDIS[(Redis - future delivery queue)]
     FS[(Local artifact directory)]
     LLM[Fake / OpenAI / Anthropic providers]
     SOURCES[Fixtures / Greenhouse / Lever / Manual URL]
@@ -113,6 +117,7 @@ flowchart TB
 
     UI --> API
     API --> DB
+    API -. not connected yet .-> REDIS
     API --> FS
     API --> LLM
     API --> SOURCES
@@ -124,8 +129,9 @@ The local console uses `AIJAA_WORKFLOW_MODE=sync`. Button actions call the
 compatibility endpoints directly and do not create orphaned background task
 rows. A DB-backed reference queue remains available with
 `AIJAA_WORKFLOW_MODE=queue`, but it must only be enabled when a separately
-managed runner drains it. The production target is PostgreSQL plus a
-transactional outbox and Redis/arq workers.
+managed runner drains it. PostgreSQL is the source of truth. The running Redis
+container is only a verified infrastructure dependency until a transactional
+outbox and Redis/arq workers are implemented.
 
 ## Code map
 
@@ -144,11 +150,11 @@ src/aijaa/
 │   └── validator.py           Confirmation and ambiguous-submit handling
 ├── core/
 │   ├── config.py              Environment configuration
-│   ├── db.py                  Async SQLAlchemy database lifecycle
+│   ├── db.py                  SQLAlchemy lifecycle and Alembic-head enforcement
 │   ├── models.py              Domain models
 │   ├── repo.py                Persistence, status transitions, audits, tasks
 │   ├── status.py              Application state machine
-│   └── tables.py              SQLite/SQLAlchemy tables
+│   └── tables.py              Cross-dialect SQLAlchemy tables
 ├── discovery/                 Sources, normalization, dedupe, freshness
 ├── intake/                    Local parser, intake engine, completeness rubric
 ├── llm/                       Provider protocols, fakes, OpenAI, Anthropic
@@ -161,6 +167,9 @@ src/aijaa/
 tests/                         Unit, integration, E2E-style, eval, regression tests
 fixtures/                      Local job postings and application forms
 scripts/                       Demo and configuration checks
+alembic/                       Migration environment and versioned schema changes
+compose.yaml                   Local PostgreSQL 16 and Redis 7 services
+uv.lock                        Reproducible direct and transitive dependencies
 ```
 
 ### Code-level request path
@@ -175,7 +184,7 @@ static/app.js
   -> application/executor.py
   -> application/browser.py
   -> core/repo.py
-  -> SQLite + local_artifacts
+  -> PostgreSQL or SQLite + local_artifacts
 ```
 
 Status changes must go through `repo.transition_application()`, which validates
@@ -185,8 +194,9 @@ the state machine and records both timeline and audit entries.
 
 Requirements:
 
-- Python 3.12 or newer
-- `python3` available on the command line
+- Python 3.13 (pinned by `.python-version`)
+- [uv](https://docs.astral.sh/uv/) for locked dependency installation
+- Docker with Compose for the recommended PostgreSQL/Redis stack
 - Node.js only for the JavaScript syntax check
 - `just` is optional
 
@@ -194,18 +204,48 @@ Requirements:
 
 ```bash
 cd /path/to/AIJAA/aijaa
+uv sync --locked --extra dev
+```
+
+`uv.lock` pins every direct and transitive dependency. A clean Python 3.13
+environment built only from this lock passes the complete test suite.
+
+Pip remains a compatibility option for existing local environments:
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 ```
 
-Or, with `just`:
+### Start PostgreSQL and Redis
 
 ```bash
-just setup
+docker compose up -d --wait postgres redis
+docker compose ps
 ```
 
-### Run the safe local console
+The development-only ports are:
+
+- PostgreSQL: `127.0.0.1:55432`
+- Redis: `127.0.0.1:6379`
+
+Redis is healthy but unused while `AIJAA_WORKFLOW_MODE=sync`. PostgreSQL is the
+recommended local source of truth. Copy the safe local configuration and apply
+all migrations before starting the API:
+
+```bash
+cp .env.example .env
+uv run alembic upgrade head
+uv run alembic check
+```
+
+PostgreSQL startup never calls `create_all()`. FastAPI reads
+`alembic_version` and refuses to start when the database revision differs from
+the application head. Local non-production SQLite and isolated unit tests retain
+controlled `create_all()` compatibility.
+
+### Run the safe local console with PostgreSQL
 
 ```bash
 AIJAA_POSTED_WITHIN_DAYS=60 \
@@ -214,17 +254,17 @@ AIJAA_FAKE_LLM=true \
 AIJAA_DRY_RUN=true \
 AIJAA_APPLY_DRIVER=http \
 AIJAA_WORKFLOW_MODE=sync \
-AIJAA_DATABASE_URL=sqlite+aiosqlite:///./aijaa_local.db \
-AIJAA_ARTIFACTS_DIR=./local_artifacts \
-.venv/bin/uvicorn aijaa.api.app:app --port 8010
+AIJAA_DATABASE_URL='postgresql+asyncpg://aijaa:aijaa-local@127.0.0.1:55432/aijaa' \
+AIJAA_ARTIFACTS_DIR=./local_artifacts/postgres \
+uv run uvicorn aijaa.api.app:app --port 8011
 ```
 
 Open:
 
-- Web console: <http://127.0.0.1:8010>
-- Swagger API: <http://127.0.0.1:8010/docs>
-- Health: <http://127.0.0.1:8010/healthz>
-- Metrics: <http://127.0.0.1:8010/metrics>
+- Web console: <http://127.0.0.1:8011>
+- Swagger API: <http://127.0.0.1:8011/docs>
+- Health: <http://127.0.0.1:8011/healthz>
+- Metrics: <http://127.0.0.1:8011/metrics>
 
 Expected local health fields:
 
@@ -263,9 +303,10 @@ A real CV can be used in the local console, subject to these constraints:
 5. Treat generated Hebrew artifacts as layout previews while fake mode is on.
 6. Use fixtures or manually vetted job URLs and keep `DRY_RUN=true`.
 
-Local candidate records are stored in the configured SQLite file. Generated
-resumes and HTML/PNG evidence are stored under `AIJAA_ARTIFACTS_DIR`. There is
-no encrypted object storage or automated retention policy in the local MVP.
+Local candidate records are stored in the configured PostgreSQL or SQLite
+database. Generated resumes and HTML/PNG evidence are stored under
+`AIJAA_ARTIFACTS_DIR`. There is no encrypted object storage or automated
+retention policy in the local MVP.
 
 ## API overview
 
@@ -360,7 +401,8 @@ All settings use the `AIJAA_` prefix.
 
 | Setting | Local default | Purpose |
 |---|---|---|
-| `AIJAA_DATABASE_URL` | SQLite | Database connection URL |
+| `AIJAA_DATABASE_URL` | SQLite in code; PostgreSQL in `.env.example` | Database connection URL |
+| `AIJAA_REDIS_URL` | `redis://127.0.0.1:6379/0` | Future worker delivery queue |
 | `AIJAA_ARTIFACTS_DIR` | `./artifacts` | Resume and evidence output directory |
 | `AIJAA_PRODUCTION_MODE` | `false` | Disable local fixtures and mock controls when true |
 | `AIJAA_WORKFLOW_MODE` | `sync` | Sync console execution or opt-in reference queue |
@@ -384,9 +426,10 @@ repository is safe to deploy. Do not place real secrets in Git.
 Run the complete local gate:
 
 ```bash
-.venv/bin/python -m pytest -q
-.venv/bin/python -m ruff check .
+uv run --locked --extra dev pytest -q
+uv run --locked --extra dev ruff check .
 node --check src/aijaa/api/static/app.js
+uv lock --check
 git diff --check
 ```
 
@@ -407,6 +450,7 @@ The suite covers:
 - CAPTCHA stops and zero bypass attempts.
 - Dry-run suppression and ambiguous-submit behavior.
 - Task idempotency, governance, dead letters, and local sync behavior.
+- SQLite-local and PostgreSQL-migration startup policy.
 - API timeline, metrics, usage, and production-mode configuration checks.
 
 `QA_CHECKPOINT.md` records the verified local checkpoints and manual acceptance
@@ -430,7 +474,8 @@ following are required:
 
 1. Cognito authentication with mandatory MFA and server-side JWT validation.
 2. Organization ownership and tenant-scoped repositories on every `/v1` route.
-3. PostgreSQL migrations with Alembic; no runtime `create_all()` in production.
+3. Production RDS, tenant foreign keys, timestamps, backup/restore, and schema
+   hardening beyond the verified local PostgreSQL/Alembic foundation.
 4. Redis/arq workers plus a transactional PostgreSQL outbox.
 5. Immutable submission authorizations, review versions, idempotency keys, and
    separate submission-attempt records.

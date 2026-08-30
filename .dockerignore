@@ -1,0 +1,12 @@
+.git
+.env
+.venv
+.venv-run
+__pycache__
+.pytest_cache
+.ruff_cache
+*.pyc
+*.db
+artifacts
+local_artifacts
+demo_artifacts

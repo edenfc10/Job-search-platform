@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AIJAA_", env_file=".env", extra="ignore")
 
     database_url: str = "sqlite+aiosqlite:///./aijaa.db"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     artifacts_dir: str = "./artifacts"
     public_base_url: str = "http://127.0.0.1:8000"
     production_mode: bool = False

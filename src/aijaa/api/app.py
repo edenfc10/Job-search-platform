@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aijaa.core.db import get_session, init_db
+from aijaa.core.db import get_session, prepare_database
 from aijaa.observability.logging import configure_logging
 
 configure_logging()
@@ -14,7 +14,7 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    await prepare_database()
     yield
 
 
