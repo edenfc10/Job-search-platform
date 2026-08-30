@@ -760,14 +760,15 @@ function escapeHtml(value) {
 }
 
 function attach(id, fn) {
-  $(id).addEventListener("click", async (event) => {
-    setBusy(event.currentTarget, true);
+  const button = $(id);
+  button.addEventListener("click", async (event) => {
+    setBusy(button, true);
     try {
       await fn(event);
     } catch (error) {
       toast(error.message, "error");
     } finally {
-      setBusy(event.currentTarget, false);
+      setBusy(button, false);
       updateActionButtons();
     }
   });
