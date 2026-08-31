@@ -467,6 +467,29 @@ async def claim_due_task(s: AsyncSession) -> t.TaskRow | None:
     return row
 
 
+async def claim_task_by_id(s: AsyncSession, task_id: str) -> t.TaskRow | None:
+    row = (
+        await s.execute(
+            select(t.TaskRow)
+            .where(
+                t.TaskRow.id == task_id,
+                t.TaskRow.status == "queued",
+                t.TaskRow.run_after <= utcnow(),
+            )
+            .with_for_update(skip_locked=True)
+        )
+    ).scalar_one_or_none()
+
+    if row is None:
+        return None
+
+    row.status = "running"
+    row.locked_at = utcnow()
+    row.attempts += 1
+    await s.commit()
+    return row
+
+
 async def complete_task(s: AsyncSession, task_id: str) -> None:
     row = await s.get(t.TaskRow, task_id)
     if row:
