@@ -24,17 +24,38 @@ async def run_one() -> bool:
         task = await repo.claim_due_task(s)
         if task is None:
             return False
-        try:
-            await _execute_task(s, task)
-            await repo.complete_task(s, task.id)
-            return True
-        except _RetryLater as retry:
-            await repo.fail_task(s, task.id, retry.reason, retry.seconds)
-            return True
-        except Exception as e:  # noqa: BLE001 - task failure must be captured
-            log.warning("task_failed", task_id=task.id, task_type=task.task_type, error=str(e))
-            await repo.fail_task(s, task.id, f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
-            return True
+        return await _run_claimed_task(s, task)
+
+
+async def run_task(task_id: str) -> bool:
+    async with session_factory()() as s:
+        task = await repo.claim_task_by_id(s, task_id)
+        if task is None:
+            return False
+        return await _run_claimed_task(s, task)
+
+
+async def _run_claimed_task(s, task) -> bool:
+    try:
+        await _execute_task(s, task)
+        await repo.complete_task(s, task.id)
+        return True
+    except _RetryLater as retry:
+        await repo.fail_task(s, task.id, retry.reason, retry.seconds)
+        return True
+    except Exception as e:  # noqa: BLE001 - task failure must be captured
+        log.warning(
+            "task_failed",
+            task_id=task.id,
+            task_type=task.task_type,
+            error=str(e),
+        )
+        await repo.fail_task(
+            s,
+            task.id,
+            f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+        )
+        return True
 
 
 async def drain(max_tasks: int = 100) -> int:

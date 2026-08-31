@@ -21,6 +21,27 @@ async def test_task_enqueue_is_idempotent(session):
     assert (await repo.task_counts(session, "seeker-1"))["queued"] == 1
 
 
+async def test_claim_task_by_id_claims_only_the_requested_task(session):
+    first_id, _ = await repo.enqueue_task(
+        session, "run_matching", "match:seeker-1", {"seeker_id": "seeker-1"}
+    )
+    second_id, _ = await repo.enqueue_task(
+        session, "run_matching", "match:seeker-2", {"seeker_id": "seeker-2"}
+    )
+
+    claimed = await repo.claim_task_by_id(session, second_id)
+
+    assert claimed is not None
+    assert claimed.id == second_id
+    assert claimed.status == "running"
+    assert claimed.attempts == 1
+    assert await repo.claim_task_by_id(session, second_id) is None
+
+    tasks = {task.id: task for task in await repo.list_tasks(session)}
+    assert tasks[first_id].status == "queued"
+    assert tasks[first_id].attempts == 0
+
+
 async def test_approved_match_enqueue_skips_terminal_application(session):
     from aijaa.core.models import MatchResult
 
