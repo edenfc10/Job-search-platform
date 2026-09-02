@@ -1,7 +1,6 @@
-from tests.conftest import PREFERENCES_PATCH, PROFILE_PATCH
-
 from aijaa.core.models import CareerPreferences, ProfessionalProfile
 from aijaa.intake.rubric import completeness
+from conftest import PREFERENCES_PATCH, PROFILE_PATCH
 
 
 def test_empty_profile_scores_low():

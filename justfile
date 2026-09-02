@@ -10,14 +10,14 @@ test:
     {{venv}}/python -m pytest -q
 
 lint:
-    {{venv}}/ruff check src tests
+    {{venv}}/ruff check backend/src backend/tests database/migrations
 
 typecheck:
     {{venv}}/python -c "import aijaa.api.app; print('imports ok')"
 
 demo:
     rm -f demo.db
-    AIJAA_DATABASE_URL=sqlite+aiosqlite:///./demo.db AIJAA_ARTIFACTS_DIR=./demo_artifacts {{venv}}/python scripts/demo_pipeline.py
+    AIJAA_DATABASE_URL=sqlite+aiosqlite:///./demo.db AIJAA_ARTIFACTS_DIR=./demo_artifacts {{venv}}/python backend/scripts/demo_pipeline.py
 
 run:
     {{venv}}/uvicorn aijaa.api.app:app --reload

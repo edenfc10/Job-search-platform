@@ -2,15 +2,14 @@
 human handoff), validator (confirmation + no-double-submit)."""
 
 
-from tests.conftest import FIXTURES_DIR, create_complete_seeker
-from tests.fixture_driver import FORMS_DIR, FixtureDriver
-
 from aijaa.application import service
 from aijaa.application.fingerprint import fingerprint
 from aijaa.application.forms import detect_interrupts, extract_form
 from aijaa.application.validator import retry_decision
 from aijaa.core import repo
 from aijaa.core.db import reset_for_tests as reset_db
+from conftest import FIXTURES_DIR, create_complete_seeker
+from fixture_driver import FORMS_DIR, FixtureDriver
 
 
 def _read(name: str) -> str:

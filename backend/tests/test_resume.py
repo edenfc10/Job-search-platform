@@ -1,12 +1,12 @@
 import os
 
 from docx import Document
-from tests.conftest import PROFILE_PATCH
 
 from aijaa.core.models import JobRequirements, Keyword, ProfessionalProfile
 from aijaa.resume.ats_score import score
 from aijaa.resume.guard import check_ir
 from aijaa.resume.ir import Bullet, base_ir_from_profile
+from conftest import PROFILE_PATCH
 
 
 def _profile() -> ProfessionalProfile:
@@ -70,7 +70,7 @@ def test_ats_score_deterministic_and_sensible():
 
 
 async def test_bilingual_rendering(client, tmp_path):
-    from tests.conftest import create_complete_seeker
+    from conftest import create_complete_seeker
 
     seeker_id = await create_complete_seeker(client)
     for lang, heading in (("en", "Experience"), ("he", "ניסיון תעסוקתי")):

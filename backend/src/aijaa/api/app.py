@@ -14,18 +14,36 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from aijaa.core.config import get_settings
+    from aijaa.orchestration.redis_queue import create_queue_pool
+
     await prepare_database()
-    yield
+
+    redis_pool = None
+    app.state.redis = None
+
+    try:
+        if get_settings().workflow_mode == "queue":
+            redis_pool = await create_queue_pool()
+            await redis_pool.ping()
+            app.state.redis = redis_pool
+
+        yield
+    finally:
+        if redis_pool is not None:
+            await redis_pool.aclose()
+        app.state.redis = None
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AIJAA — AI Job Applications Agent", version="0.1.0", lifespan=lifespan)
-    static_dir = Path(__file__).with_name("static")
+    static_dir = Path(__file__).resolve().parents[4] / "frontend"
     from aijaa.api.routers.applications import router as applications_router
     from aijaa.api.routers.approvals import router as approvals_router
     from aijaa.api.routers.cv import router as cv_router
     from aijaa.api.routers.pipeline import router as pipeline_router
     from aijaa.api.routers.seekers import router as seekers_router
+    from aijaa.api.routers.tasks import router as tasks_router
     from aijaa.core.config import get_settings
 
     app.include_router(cv_router)
@@ -33,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(pipeline_router)
     app.include_router(approvals_router)
     app.include_router(applications_router)
+    app.include_router(tasks_router)
 
     @app.middleware("http")
     async def disable_console_cache(request, call_next):

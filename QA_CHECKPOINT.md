@@ -1,24 +1,24 @@
 # AIJAA — Current Checkpoint
 
-**Date:** 2026-08-26 · **Status:** local MVP flow completed; production foundation not started.
+**Date:** 2026-09-02 · **Status:** local MVP plus PostgreSQL/Redis worker foundation.
 
 Current verification target:
 
 ```bash
-.venv-run/bin/ruff check src tests
-node --check src/aijaa/api/static/app.js
-.venv-run/bin/python -m pytest -q
+.venv/bin/ruff check backend/src backend/tests database/migrations
+node --check frontend/app.js
+.venv/bin/python -m pytest -q
 ```
 
-Expected result: 79 tests pass. The local parser now extracts multiple jobs,
+Expected result: 92 tests pass. The local parser extracts multiple jobs,
 month-level dates, education, salary preferences, and Hebrew section headings.
 The UI restores the active seeker/application, resolves `needs_human` questions
 without curl, prevents stale static assets, blocks placeholder candidate data,
 invalidates reviews after profile changes, rebuilds resume artifacts by profile
 version, and keeps dry-run submission non-destructive. Local workflows now run in
-explicit `sync` mode and do not create orphaned task rows. The reference DB-backed
-runner remains opt-in and is not started by FastAPI, so PostgreSQL/Redis/arq,
-authentication/tenant isolation,
+explicit `sync` mode and do not create orphaned task rows. PostgreSQL/Alembic,
+Redis lifecycle checks, an ARQ worker, exact task claiming, and a task-status API
+are present; business endpoints do not publish queue jobs yet. Authentication/tenant isolation,
 durable submission attempts, hardened storage/network inputs, CI/CD, and AWS
 infrastructure remain production blockers.
 
@@ -65,7 +65,7 @@ python3 -m venv .venv            # needs Python 3.12+ (built/tested on 3.13)
 
 ```bash
 .venv/bin/python -m pytest -q      # expect: 36 passed
-.venv/bin/ruff check src tests     # expect: clean
+.venv/bin/ruff check backend/src backend/tests database/migrations  # expect: clean
 ```
 
 The suite is the acceptance harness. Notable guarantees it encodes:
@@ -78,7 +78,7 @@ The suite is the acceptance harness. Notable guarantees it encodes:
 ## QA-2 — Watch the whole pipeline (recommended)
 
 ```bash
-.venv/bin/python scripts/demo_pipeline.py    # or: just demo
+.venv/bin/python backend/scripts/demo_pipeline.py    # or: just demo
 ```
 
 Prints all 7 stages for a fixture seeker "Dana Levi". Confirm you see:
@@ -95,7 +95,7 @@ Prints all 7 stages for a fixture seeker "Dana Levi". Confirm you see:
 just run     # uvicorn on http://127.0.0.1:8000  — see /docs for the full surface
 ```
 
-Key endpoints to try in `/docs`: `POST /v1/seekers` → `POST /v1/seekers/{id}/intake/turns` → `POST /v1/seekers/{id}/resume` → `POST /v1/discovery/run` (body `{"fixtures_dir": "fixtures/postings"}`) → `POST /v1/seekers/{id}/match/run` → `GET /v1/seekers/{id}/matches?status=pending` → `POST /v1/matches/{id}/decision` → `GET /v1/matches/{id}/handoff`. `GET /healthz` shows `llm_mode` and `dry_run`.
+Key endpoints to try in `/docs`: `POST /v1/seekers` → `POST /v1/seekers/{id}/intake/turns` → `POST /v1/seekers/{id}/resume` → `POST /v1/discovery/run` (body `{"fixtures_dir": "backend/fixtures/postings"}`) → `POST /v1/seekers/{id}/match/run` → `GET /v1/seekers/{id}/matches?status=pending` → `POST /v1/matches/{id}/decision` → `GET /v1/matches/{id}/handoff`. `GET /healthz` shows `llm_mode` and `dry_run`.
 
 ---
 

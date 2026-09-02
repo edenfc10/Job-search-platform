@@ -35,16 +35,17 @@ PostgreSQL or SQLite, local artifacts, a mock ATS, and `DRY_RUN=true`.
 | Real submission | Disabled | The verified path uses `DRY_RUN=true` |
 | Authentication and tenancy | Not implemented | Production blocker |
 | PostgreSQL and Alembic | Working locally | PostgreSQL 16, reversible initial migration, startup head check |
-| Redis | Infrastructure only | Healthy local service; no queue or worker uses it yet |
+| Redis and ARQ worker | Foundation working locally | Worker, exact task claiming, lifecycle checks, and task status API; business endpoints remain synchronous |
 | S3 and AWS | Not implemented | Production blocker |
 
 Current verification baseline:
 
 ```text
-83 tests passed
+92 tests passed
 Ruff passed
 JavaScript syntax passed
 PostgreSQL upgrade/downgrade/upgrade passed on an isolated database
+FastAPI queue-mode startup and ARQ worker startup passed against local Redis
 Manual local flow reached ready_to_submit and dry_run_submit_suppressed
 ```
 
@@ -108,7 +109,8 @@ flowchart TB
     UI[Vanilla HTML/CSS/JavaScript console]
     API[FastAPI API]
     DB[(PostgreSQL / SQLite)]
-    REDIS[(Redis - future delivery queue)]
+    REDIS[(Redis delivery queue)]
+    WORKER[ARQ worker]
     FS[(Local artifact directory)]
     LLM[Fake / OpenAI / Anthropic providers]
     SOURCES[Fixtures / Greenhouse / Lever / Manual URL]
@@ -117,7 +119,9 @@ flowchart TB
 
     UI --> API
     API --> DB
-    API -. not connected yet .-> REDIS
+    API --> REDIS
+    REDIS --> WORKER
+    WORKER --> DB
     API --> FS
     API --> LLM
     API --> SOURCES
@@ -127,20 +131,18 @@ flowchart TB
 
 The local console uses `AIJAA_WORKFLOW_MODE=sync`. Button actions call the
 compatibility endpoints directly and do not create orphaned background task
-rows. A DB-backed reference queue remains available with
-`AIJAA_WORKFLOW_MODE=queue`, but it must only be enabled when a separately
-managed runner drains it. PostgreSQL is the source of truth. The running Redis
-container is only a verified infrastructure dependency until a transactional
-outbox and Redis/arq workers are implemented.
+rows. `AIJAA_WORKFLOW_MODE=queue` now opens and verifies Redis during FastAPI
+startup, while a separately managed ARQ worker can execute an exact PostgreSQL
+task by ID. Business endpoints do not publish work yet. PostgreSQL remains the
+source of truth; a transactional outbox is still required before production.
 
 ## Code map
 
 ```text
-src/aijaa/
+backend/src/aijaa/
 ├── api/
-│   ├── app.py                 FastAPI application, health, metrics, static UI
-│   ├── routers/               CV, seeker, discovery, approval, application APIs
-│   └── static/                Current HTML/CSS/JavaScript operator console
+│   ├── app.py                 FastAPI application, health, metrics, frontend mount
+│   ├── routers/               CV, seeker, discovery, approval, application, task APIs
 ├── application/
 │   ├── analyzer.py            ATS detection and application-plan creation
 │   ├── answers.py             Field classification and safe answer routing
@@ -164,11 +166,12 @@ src/aijaa/
 ├── resume/                    Fact guard, tailoring, IR, DOCX/TXT rendering
 └── testkit/                   Local mock ATS and test fixtures
 
-tests/                         Unit, integration, E2E-style, eval, regression tests
-fixtures/                      Local job postings and application forms
-scripts/                       Demo and configuration checks
-alembic/                       Migration environment and versioned schema changes
-compose.yaml                   Local PostgreSQL 16 and Redis 7 services
+backend/tests/                 Unit, integration, E2E-style, eval, regression tests
+backend/fixtures/              Local job postings and application forms
+backend/scripts/               Demo and configuration checks
+frontend/                      HTML/CSS/JavaScript operator console
+database/                      Alembic configuration and versioned migrations
+infrastructure/compose.yaml    Local PostgreSQL 16 and Redis 7 services
 uv.lock                        Reproducible direct and transitive dependencies
 ```
 
@@ -177,7 +180,7 @@ uv.lock                        Reproducible direct and transitive dependencies
 For a typical local application preparation:
 
 ```text
-static/app.js
+frontend/app.js
   -> api/routers/applications.py
   -> application/service.py
   -> application/analyzer.py
@@ -221,8 +224,8 @@ python -m pip install -e ".[dev]"
 ### Start PostgreSQL and Redis
 
 ```bash
-docker compose up -d --wait postgres redis
-docker compose ps
+docker compose -f infrastructure/compose.yaml up -d --wait postgres redis
+docker compose -f infrastructure/compose.yaml ps
 ```
 
 The development-only ports are:
@@ -236,8 +239,8 @@ all migrations before starting the API:
 
 ```bash
 cp .env.example .env
-uv run alembic upgrade head
-uv run alembic check
+uv run alembic -c database/alembic.ini upgrade head
+uv run alembic -c database/alembic.ini check
 ```
 
 PostgreSQL startup never calls `create_all()`. FastAPI reads
@@ -282,6 +285,31 @@ Expected local health fields:
 `production_ready=true` while `production_mode=false` only means the local
 configuration is internally valid. It is not a production-readiness claim.
 
+### Optional queue foundation
+
+The web console currently runs the business workflow synchronously. Queue mode
+is present and tested as an infrastructure foundation: FastAPI verifies Redis
+on startup, and an ARQ worker can claim one exact PostgreSQL task by ID. The
+existing business endpoints do **not** publish their work to Redis yet, so do
+not switch the console to queue mode expecting the buttons to become async.
+
+To verify the foundation locally, use two terminals after starting PostgreSQL
+and Redis:
+
+```bash
+# Terminal 1: start the API and verify its Redis lifecycle
+AIJAA_WORKFLOW_MODE=queue \
+AIJAA_DATABASE_URL='postgresql+asyncpg://aijaa:aijaa-local@127.0.0.1:55432/aijaa' \
+uv run uvicorn aijaa.api.app:app --port 8012
+
+# Terminal 2: start one ARQ worker
+uv run arq aijaa.orchestration.worker.WorkerSettings
+```
+
+`GET /v1/tasks/{task_id}` exposes the safe task metadata needed for polling;
+it deliberately never returns the task payload. The next orchestration step is
+to make selected endpoints create an outbox event and publish it transactionally.
+
 ### Run the deterministic demo
 
 ```bash
@@ -310,7 +338,7 @@ retention policy in the local MVP.
 
 ## API overview
 
-The service currently exposes 24 business endpoints under `/v1`.
+The service currently exposes business endpoints under `/v1`.
 
 ### CV and candidate profile
 
@@ -338,6 +366,7 @@ The service currently exposes 24 business endpoints under `/v1`.
 | `GET` | `/v1/matches/{id}/handoff` | Build the operator handoff packet |
 | `GET` | `/v1/seekers/{id}/pipeline` | Read application/task/dead-letter counts |
 | `GET` | `/v1/usage` | Read global LLM usage |
+| `GET` | `/v1/tasks/{task_id}` | Read a queued worker task without exposing its payload |
 
 ### Application preparation and confirmation
 
@@ -428,7 +457,7 @@ Run the complete local gate:
 ```bash
 uv run --locked --extra dev pytest -q
 uv run --locked --extra dev ruff check .
-node --check src/aijaa/api/static/app.js
+node --check frontend/app.js
 uv lock --check
 git diff --check
 ```
@@ -476,7 +505,7 @@ following are required:
 2. Organization ownership and tenant-scoped repositories on every `/v1` route.
 3. Production RDS, tenant foreign keys, timestamps, backup/restore, and schema
    hardening beyond the verified local PostgreSQL/Alembic foundation.
-4. Redis/arq workers plus a transactional PostgreSQL outbox.
+4. Redis/arq publication from business endpoints plus a transactional PostgreSQL outbox.
 5. Immutable submission authorizations, review versions, idempotency keys, and
    separate submission-attempt records.
 6. S3/KMS private artifacts, signed downloads, lifecycle rules, and deletion

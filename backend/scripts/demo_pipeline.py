@@ -5,7 +5,7 @@ handoff -> tailor -> analyze -> fill (stops at the pre-submit gate) ->
 confirm-submit (dry-run suppressed).
 
 Run:  AIJAA_DATABASE_URL=sqlite+aiosqlite:///./demo.db \
-      AIJAA_ARTIFACTS_DIR=./demo_artifacts .venv/bin/python scripts/demo_pipeline.py
+      AIJAA_ARTIFACTS_DIR=./demo_artifacts uv run python backend/scripts/demo_pipeline.py
 """
 
 import asyncio

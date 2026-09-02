@@ -88,9 +88,8 @@ async def test_fixture_relative_date_does_not_expire(tmp_path):
 
 
 async def test_discovery_uses_current_request_port_for_mock_forms(client, session):
-    from tests.conftest import FIXTURES_DIR
-
     from aijaa.core import repo
+    from conftest import FIXTURES_DIR
 
     response = await client.post("/v1/discovery/run", json={"fixtures_dir": FIXTURES_DIR})
     assert response.status_code == 200, response.text
@@ -140,7 +139,7 @@ EDUCATION
     assert saved.status_code == 200, saved.text
 
     discovered = await client.post(
-        "/v1/discovery/run", json={"fixtures_dir": "fixtures/postings"}
+        "/v1/discovery/run", json={"fixtures_dir": "backend/fixtures/postings"}
     )
     assert discovered.status_code == 200, discovered.text
     assert discovered.json()["stale_dropped"] == 1
@@ -155,7 +154,7 @@ EDUCATION
 async def test_full_mvp_flow(client):
     """Intake -> resume -> discovery -> matching (floor + freshness + dedupe)
     -> approval -> handoff packet. The MVP slice, end to end."""
-    from tests.conftest import FIXTURES_DIR, create_complete_seeker
+    from conftest import FIXTURES_DIR, create_complete_seeker
 
     seeker_id = await create_complete_seeker(client)
 
@@ -224,10 +223,10 @@ async def test_full_mvp_flow(client):
 
 async def test_gate_blocks_without_approval(client, session):
     import pytest
-    from tests.conftest import FIXTURES_DIR, create_complete_seeker
 
     from aijaa.application.gate import ApprovalMissing, require_approval
     from aijaa.core import repo
+    from conftest import FIXTURES_DIR, create_complete_seeker
 
     seeker_id = await create_complete_seeker(client)
     await client.post("/v1/discovery/run", json={"fixtures_dir": FIXTURES_DIR})

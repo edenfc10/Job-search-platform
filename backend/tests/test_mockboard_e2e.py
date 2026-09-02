@@ -1,11 +1,11 @@
 import httpx
-from tests.conftest import FIXTURES_DIR, create_complete_seeker
 
 from aijaa.application.browser import HttpFormDriver
 from aijaa.application.executor import confirm_submit
 from aijaa.core import repo
 from aijaa.core.db import init_db, session_factory
 from aijaa.testkit.mockboard import create_mock_ats
+from conftest import FIXTURES_DIR, create_complete_seeker
 
 
 async def _ready_application(client, company: str):

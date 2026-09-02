@@ -41,7 +41,9 @@ async def test_production_blocks_fixture_discovery(monkeypatch, tmp_path):
         AIJAA_OPENAI_API_KEY="sk-test",
         AIJAA_APPLY_DRIVER="playwright",
     ) as client:
-        r = await client.post("/v1/discovery/run", json={"fixtures_dir": "fixtures/postings"})
+        r = await client.post(
+            "/v1/discovery/run", json={"fixtures_dir": "backend/fixtures/postings"}
+        )
     assert r.status_code == 422
     assert "disabled in production" in r.json()["detail"]
 

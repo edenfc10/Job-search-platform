@@ -53,7 +53,7 @@ async def test_approved_match_enqueue_skips_terminal_application(session):
 
 
 async def test_sync_console_approval_does_not_create_queued_work(client):
-    from tests.conftest import FIXTURES_DIR, create_complete_seeker
+    from conftest import FIXTURES_DIR, create_complete_seeker
 
     seeker_id = await create_complete_seeker(client)
     discovered = await client.post(

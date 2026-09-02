@@ -32,16 +32,16 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["backend/src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["backend/tests"]
 markers = ["e2e: full browser end-to-end tests (require playwright chromium)"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["backend/src", "backend/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

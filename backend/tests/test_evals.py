@@ -1,8 +1,7 @@
-from tests.conftest import PROFILE_PATCH
-
 from aijaa.llm.base import GeneratedAnswer
 from aijaa.resume.guard import check_answer_text, check_ir
 from aijaa.resume.ir import Bullet, ExperienceEntry, ResumeIR
+from conftest import PROFILE_PATCH
 
 
 def test_matcher_precision_eval_gate():

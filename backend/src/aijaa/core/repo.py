@@ -438,6 +438,10 @@ async def enqueue_task(
     return task_id, True
 
 
+async def get_task(s: AsyncSession, task_id: str) -> t.TaskRow | None:
+    return await s.get(t.TaskRow, task_id)
+
+
 async def list_tasks(
     s: AsyncSession, status: str | None = None, seeker_id: str | None = None
 ) -> list[t.TaskRow]:
