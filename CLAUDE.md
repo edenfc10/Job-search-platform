@@ -35,7 +35,7 @@ statuses: discovered→matched→approved→tailored→applying→ready_to_submi
 - `testkit/` — in-process mock ATS (`mockboard.py`)
 - `api/` — FastAPI routers (seekers, pipeline, approvals, applications, tasks)
 - `frontend/` — standalone static operator console served by FastAPI
-- `database/` — Alembic configuration and migrations
+- `backend/migrations/` — Alembic configuration and migrations
 - `infrastructure/` — local service definitions
 
 ## Non-negotiable invariants (from the PRD philosophy)

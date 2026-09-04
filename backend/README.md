@@ -8,6 +8,14 @@ grouped by workflow area, and ARQ worker code is under
 Backend tests live in `tests`, deterministic job/application fixtures live in
 `fixtures`, and local utility entry points live in `scripts`.
 
+Alembic configuration is `alembic.ini` and versioned database migrations live
+in `migrations`. From the repository root, run:
+
+```bash
+uv run alembic -c backend/alembic.ini upgrade head
+uv run alembic -c backend/alembic.ini check
+```
+
 Run backend checks from the repository root:
 
 ```bash

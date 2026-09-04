@@ -169,9 +169,10 @@ backend/src/aijaa/
 backend/tests/                 Unit, integration, E2E-style, eval, regression tests
 backend/fixtures/              Local job postings and application forms
 backend/scripts/               Demo and configuration checks
+backend/migrations/            Alembic configuration and versioned migrations
 frontend/                      HTML/CSS/JavaScript operator console
-database/                      Alembic configuration and versioned migrations
-infrastructure/compose.yaml    Local PostgreSQL 16 and Redis 7 services
+infrastructure/                Local Docker services and future cloud IaC
+docs/                          Architecture, QA, security, and operating notes
 uv.lock                        Reproducible direct and transitive dependencies
 ```
 
@@ -239,8 +240,8 @@ all migrations before starting the API:
 
 ```bash
 cp .env.example .env
-uv run alembic -c database/alembic.ini upgrade head
-uv run alembic -c database/alembic.ini check
+uv run alembic -c backend/alembic.ini upgrade head
+uv run alembic -c backend/alembic.ini check
 ```
 
 PostgreSQL startup never calls `create_all()`. FastAPI reads
@@ -482,8 +483,8 @@ The suite covers:
 - SQLite-local and PostgreSQL-migration startup policy.
 - API timeline, metrics, usage, and production-mode configuration checks.
 
-`QA_CHECKPOINT.md` records the verified local checkpoints and manual acceptance
-history.
+[docs/qa-checkpoints.md](docs/qa-checkpoints.md) records the verified local
+checkpoints and manual acceptance history.
 
 ## Observability
 
@@ -535,6 +536,8 @@ and separate API, worker, browser-worker, and scheduler services.
 
 ## Related documentation
 
-- `QA_CHECKPOINT.md` — verified checkpoints and manual QA history.
-- `AIJAA_Prompt_Chain.md` — original product and architecture prompt chain.
+- [docs/README.md](docs/README.md) — index of product, architecture, and operating notes.
+- [docs/database.md](docs/database.md) — database migration commands.
+- [docs/qa-checkpoints.md](docs/qa-checkpoints.md) — verified checkpoints and manual QA history.
+- [docs/product-prompt-chain.md](docs/product-prompt-chain.md) — placeholder for the original product and architecture prompt chain.
 - `CLAUDE.md` — repository conventions and implementation history.

@@ -5,7 +5,7 @@
 Current verification target:
 
 ```bash
-.venv/bin/ruff check backend/src backend/tests database/migrations
+.venv/bin/ruff check backend/src backend/tests backend/migrations
 node --check frontend/app.js
 .venv/bin/python -m pytest -q
 ```
@@ -65,7 +65,7 @@ python3 -m venv .venv            # needs Python 3.12+ (built/tested on 3.13)
 
 ```bash
 .venv/bin/python -m pytest -q      # expect: 36 passed
-.venv/bin/ruff check backend/src backend/tests database/migrations  # expect: clean
+.venv/bin/ruff check backend/src backend/tests backend/migrations  # expect: clean
 ```
 
 The suite is the acceptance harness. Notable guarantees it encodes:

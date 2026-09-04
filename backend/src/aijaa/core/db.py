@@ -42,7 +42,7 @@ async def init_db() -> None:
 
 def expected_migration_heads() -> set[str]:
     project_root = Path(__file__).resolve().parents[4]
-    alembic_config = Config(str(project_root / "database" / "alembic.ini"))
+    alembic_config = Config(str(project_root / "backend" / "alembic.ini"))
     return set(ScriptDirectory.from_config(alembic_config).get_heads())
 
 

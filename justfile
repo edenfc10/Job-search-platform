@@ -10,7 +10,7 @@ test:
     {{venv}}/python -m pytest -q
 
 lint:
-    {{venv}}/ruff check backend/src backend/tests database/migrations
+    {{venv}}/ruff check backend/src backend/tests backend/migrations
 
 typecheck:
     {{venv}}/python -c "import aijaa.api.app; print('imports ok')"
